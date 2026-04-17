@@ -3,6 +3,7 @@ import json
 import fitz  # PyMuPDF
 import time
 import concurrent.futures
+import resend
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -10,6 +11,7 @@ from dotenv import load_dotenv
 # Database and Prompts
 import database
 from prompts import HACKATHON_PARSE_AND_SCORE
+from interview_prompts import GENERATE_INTERVIEW_QUESTIONS, EVALUATE_INTERVIEW
 
 # Load environment variables
 load_dotenv()
@@ -299,6 +301,180 @@ def match_resumes():
 
     results.sort(key=lambda x: x.get("overall_score", 0) if isinstance(x.get("overall_score", 0), (int, float)) else 0, reverse=True)
     return jsonify({"candidates": results})
+
+# ─── Interview Endpoints ─────────────────────────────────────────────────────
+
+def send_interview_email(to_email, candidate_name, interview_link, job_title):
+    """Send interview invitation email via Resend API. Returns True if sent successfully."""
+    api_key      = os.getenv("RESEND_API_KEY")
+    sender_email = os.getenv("SENDER_EMAIL", "NeuralHire <onboarding@resend.dev>")
+
+    if not api_key:
+        return False
+
+    resend.api_key = api_key
+
+    html = f"""
+    <!DOCTYPE html>
+    <html><body style="font-family:'Segoe UI',Arial,sans-serif;background:#f0f2ff;margin:0;padding:20px;">
+      <div style="max-width:600px;margin:40px auto;background:white;border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(79,70,229,0.12);">
+        <div style="background:linear-gradient(135deg,#4f46e5,#06b6d4);padding:32px;text-align:center;">
+          <h1 style="color:white;margin:0;font-size:22px;">&#129302; AI Interview Invitation</h1>
+          <p style="color:rgba(255,255,255,0.85);margin:8px 0 0;">NeuralHire &bull; Phase 2 Assessment</p>
+        </div>
+        <div style="padding:32px;">
+          <p style="font-size:16px;color:#0f0f1a;">Hi <strong>{candidate_name}</strong>,</p>
+          <p style="color:#5e6278;line-height:1.7;">Congratulations! You've been shortlisted for the <strong>{job_title}</strong> position. As the next step, we invite you to complete a short AI-powered concept interview.</p>
+          <div style="background:#f8f9ff;border:1px solid #e0e4ff;border-radius:10px;padding:16px;margin:20px 0;">
+            <p style="margin:0;color:#5e6278;font-size:14px;">&#9201; <strong>~20 minutes</strong> &nbsp;|&nbsp; &#128221; <strong>5 conceptual questions</strong> &nbsp;|&nbsp; &#129504; <strong>AI evaluated</strong></p>
+          </div>
+          <div style="text-align:center;margin:28px 0;">
+            <a href="{interview_link}" style="display:inline-block;background:linear-gradient(135deg,#4f46e5,#06b6d4);color:white;padding:14px 36px;border-radius:10px;text-decoration:none;font-weight:700;font-size:16px;">Start My Interview &rarr;</a>
+          </div>
+          <p style="font-size:12px;color:#9ca3af;margin-top:24px;word-break:break-all;">If the button doesn't work, paste this link: {interview_link}</p>
+        </div>
+      </div>
+    </body></html>
+    """
+
+    try:
+        params = {
+            "from":    sender_email,
+            "to":      [to_email],
+            "subject": f"You're invited to an AI Interview \u2013 {job_title}",
+            "html":    html,
+        }
+        resend.Emails.send(params)
+        return True
+    except Exception as e:
+        print(f"Resend email error: {e}")
+        return False
+
+@app.route('/api/interviews/create', methods=['POST'])
+def create_interview_endpoint():
+    data = request.json
+    workspace_id    = data.get('workspace_id')
+    candidate_id    = data.get('candidate_id')
+    candidate_email = data.get('candidate_email', '')
+    candidate_name  = data.get('candidate_name', 'Candidate')
+    job_description = data.get('job_description', '')
+    job_title       = data.get('job_title', 'the role')
+
+    if not workspace_id or not candidate_id:
+        return jsonify({"error": "workspace_id and candidate_id required"}), 400
+
+    # Generate AI questions
+    questions = []
+    try:
+        prompt = GENERATE_INTERVIEW_QUESTIONS.format(job_description=job_description[:3000])
+        q_data = call_llm(prompt)
+        questions = q_data.get("questions", [])
+    except Exception as e:
+        print(f"Question generation error: {e}")
+
+    if not questions:
+        questions = [
+            {"id": 1, "question": "Describe the most technically challenging project you've worked on. What was your role and how did you overcome the key obstacles?", "difficulty": "foundational", "topic": "Problem Solving"},
+            {"id": 2, "question": "Explain a core concept fundamental to this role and describe a practical scenario where you applied it.", "difficulty": "foundational", "topic": "Core Knowledge"},
+            {"id": 3, "question": "How do you approach debugging a complex issue you've never encountered before? Walk us through your methodology.", "difficulty": "intermediate", "topic": "Debugging"},
+            {"id": 4, "question": "Describe a situation where you had to rapidly learn a new technology or framework. How did you ensure competency?", "difficulty": "intermediate", "topic": "Learning Agility"},
+            {"id": 5, "question": "What do you consider the most critical best practice in your field today, and how do you ensure it's upheld in your work?", "difficulty": "advanced", "topic": "Best Practices"},
+        ]
+
+    interview = database.create_interview(
+        workspace_id=workspace_id,
+        candidate_id=candidate_id,
+        candidate_email=candidate_email,
+        candidate_name=candidate_name,
+        questions=questions
+    )
+
+    if not interview:
+        return jsonify({"error": "Failed to create interview in database"}), 500
+
+    token = interview['interview_token']
+    origin = request.headers.get('Origin', request.host_url.rstrip('/'))
+    interview_link = f"{origin}/interview/{token}"
+
+    email_sent = False
+    if candidate_email:
+        email_sent = send_interview_email(candidate_email, candidate_name, interview_link, job_title)
+
+    return jsonify({
+        "success": True,
+        "interview_token": token,
+        "interview_link": interview_link,
+        "email_sent": email_sent,
+        "candidate_email": candidate_email
+    }), 201
+
+@app.route('/api/interviews/<token>', methods=['GET'])
+def get_interview_endpoint(token):
+    interview = database.get_interview_by_token(token)
+    if not interview:
+        return jsonify({"error": "Interview not found or link has expired."}), 404
+    # Get workspace title for the interview page
+    workspace = database.get_workspace_by_id(interview['workspace_id'])
+    interview['job_title']       = workspace['title'] if workspace else 'the role'
+    interview['job_description'] = workspace['description'] if workspace else ''
+    return jsonify(interview), 200
+
+@app.route('/api/interviews/<token>/start', methods=['PUT'])
+def start_interview_endpoint(token):
+    database.update_interview_status(token, 'in_progress')
+    return jsonify({"success": True}), 200
+
+@app.route('/api/interviews/<token>/submit', methods=['POST'])
+def submit_interview_endpoint(token):
+    interview = database.get_interview_by_token(token)
+    if not interview:
+        return jsonify({"error": "Interview not found"}), 404
+    if interview.get('status') == 'completed':
+        return jsonify({"error": "Interview already submitted", "overall_score": interview.get('overall_score'), "ai_feedback": interview.get('ai_feedback')}), 200
+
+    data    = request.json
+    answers = data.get('answers', [])
+
+    questions = interview.get('questions', [])
+    qa_pairs  = ""
+    for q in questions:
+        ans_obj = next((a for a in answers if a.get('question_id') == q['id']), None)
+        answer  = ans_obj.get('answer', '(No answer provided)') if ans_obj else '(No answer provided)'
+        qa_pairs += f"\nQ{q['id']} [{q.get('difficulty','N/A')}] ({q.get('topic','')}):\n{q['question']}\nAnswer: {answer}\n"
+
+    workspace = database.get_workspace_by_id(interview['workspace_id'])
+    job_desc  = workspace['description'] if workspace else ''
+
+    try:
+        prompt     = EVALUATE_INTERVIEW.format(job_description=job_desc[:2000], qa_pairs=qa_pairs[:8000])
+        evaluation = call_llm(prompt)
+        question_scores = evaluation.get('question_scores', [])
+        overall_score   = int(evaluation.get('overall_score', 0))
+        ai_feedback = {
+            'overall_feedback':         evaluation.get('overall_feedback', ''),
+            'interview_recommendation': evaluation.get('interview_recommendation', 'MAYBE'),
+            'key_strengths':            evaluation.get('key_strengths', []),
+            'knowledge_gaps':           evaluation.get('knowledge_gaps', [])
+        }
+    except Exception as e:
+        print(f"Evaluation error: {e}")
+        question_scores = [{"question_id": q['id'], "score": 50, "feedback": "Could not evaluate at this time.", "demonstrated_concepts": []} for q in questions]
+        overall_score   = 50
+        ai_feedback     = {"overall_feedback": "Evaluation is temporarily unavailable. Your answers have been saved.", "interview_recommendation": "MAYBE", "key_strengths": [], "knowledge_gaps": []}
+
+    database.submit_interview_answers(token, answers, question_scores, overall_score, ai_feedback)
+
+    return jsonify({
+        "success": True,
+        "overall_score": overall_score,
+        "ai_feedback":   ai_feedback,
+        "question_scores": question_scores
+    }), 200
+
+@app.route('/api/workspaces/<int:workspace_id>/interviews', methods=['GET'])
+def get_workspace_interviews_endpoint(workspace_id):
+    interviews = database.get_interviews_for_workspace(workspace_id)
+    return jsonify({"interviews": interviews}), 200
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

@@ -130,3 +130,64 @@ def delete_candidate(candidate_id):
 def clear_workspace_candidates(workspace_id):
     supabase = get_supabase_client()
     supabase.table("candidates").delete().eq("workspace_id", workspace_id).execute()
+
+def get_workspace_by_id(workspace_id):
+    supabase = get_supabase_client()
+    response = supabase.table("workspaces").select("*").eq("id", workspace_id).execute()
+    if response.data and len(response.data) > 0:
+        return response.data[0]
+    return None
+
+# --- Interviews ---
+
+def create_interview(workspace_id, candidate_id, candidate_email, candidate_name, questions):
+    supabase = get_supabase_client()
+    data = {
+        "workspace_id": workspace_id,
+        "candidate_id": candidate_id,
+        "candidate_email": candidate_email,
+        "candidate_name": candidate_name,
+        "questions": questions,
+        "status": "pending"
+    }
+    response = supabase.table("interviews").insert(data).execute()
+    if response.data and len(response.data) > 0:
+        return response.data[0]
+    return None
+
+def get_interview_by_token(token):
+    supabase = get_supabase_client()
+    response = supabase.table("interviews").select("*").eq("interview_token", token).execute()
+    if response.data and len(response.data) > 0:
+        return response.data[0]
+    return None
+
+def get_interview_by_candidate(candidate_id):
+    supabase = get_supabase_client()
+    response = supabase.table("interviews").select("*").eq("candidate_id", candidate_id).execute()
+    if response.data and len(response.data) > 0:
+        return response.data[0]
+    return None
+
+def update_interview_status(token, status):
+    supabase = get_supabase_client()
+    supabase.table("interviews").update({"status": status}).eq("interview_token", token).execute()
+
+def submit_interview_answers(token, answers, question_scores, overall_score, ai_feedback):
+    supabase = get_supabase_client()
+    from datetime import datetime, timezone
+    data = {
+        "answers": answers,
+        "question_scores": question_scores,
+        "overall_score": overall_score,
+        "ai_feedback": ai_feedback,
+        "status": "completed",
+        "completed_at": datetime.now(timezone.utc).isoformat()
+    }
+    supabase.table("interviews").update(data).eq("interview_token", token).execute()
+
+def get_interviews_for_workspace(workspace_id):
+    supabase = get_supabase_client()
+    response = supabase.table("interviews").select("*").eq("workspace_id", workspace_id).order("created_at", desc=True).execute()
+    return response.data
+
