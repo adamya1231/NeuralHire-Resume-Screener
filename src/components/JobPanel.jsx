@@ -25,7 +25,7 @@ const JobPanel = ({ onWorkspaceCreated, session }) => {
       });
       const data = await response.json();
       if (data.workspace_id) {
-        onWorkspaceCreated({ id: data.workspace_id, title: data.title, description: data.description, min_score: data.min_score });
+        onWorkspaceCreated({ id: data.workspace_id, public_token: data.public_token, title: data.title, description: data.description, min_score: data.min_score });
         setJobDesc('');
         setJobTitle('');
       }
