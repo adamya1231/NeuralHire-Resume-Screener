@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 
 const ROLE_TAGS = ['React', 'Python', 'Node.js', 'ML', 'Docker', 'AWS', 'SQL', 'TypeScript'];
 
-const JobPanel = ({ onWorkspaceCreated }) => {
+const JobPanel = ({ onWorkspaceCreated, session }) => {
   const [jobTitle, setJobTitle] = useState('');
   const [jobDesc, setJobDesc] = useState('');
   const [minScore, setMinScore] = useState(75);
@@ -17,7 +17,10 @@ const JobPanel = ({ onWorkspaceCreated }) => {
     try {
       const response = await fetch(`${import.meta.env.VITE_API_URL}/api/workspaces`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
         body: JSON.stringify({ title: jobTitle.trim(), description: jobDesc, min_score: parseInt(minScore, 10) })
       });
       const data = await response.json();
