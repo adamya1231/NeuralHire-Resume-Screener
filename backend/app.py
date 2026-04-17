@@ -127,20 +127,35 @@ def process_single_resume(idx, file_bytes, filename, job_description):
 
 # --- Workspace Endpoints ---
 
+def get_recruiter_id_from_request():
+    """Extract and verify the Supabase JWT from the Authorization header."""
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return None
+    token = auth_header.split(' ', 1)[1]
+    user = database.get_user_from_token(token)
+    if user:
+        return user.id
+    return None
+
 @app.route('/api/workspaces', methods=['GET'])
 def get_workspaces():
-    workspaces = database.get_all_workspaces()
+    recruiter_id = get_recruiter_id_from_request()
+    if not recruiter_id:
+        return jsonify({"workspaces": []})
+    workspaces = database.get_all_workspaces(recruiter_id=recruiter_id)
     return jsonify({"workspaces": workspaces})
 
 @app.route('/api/workspaces', methods=['POST'])
 def create_workspace():
+    recruiter_id = get_recruiter_id_from_request()
     data = request.json
     title = data.get('title')
     description = data.get('description')
     min_score = int(data.get('min_score', 75))
     if not title or not description:
         return jsonify({"error": "Missing title or description"}), 400
-    w_id, public_token = database.create_workspace(title, description, min_score)
+    w_id, public_token = database.create_workspace(title, description, min_score, recruiter_id=recruiter_id)
     return jsonify({"id": w_id, "workspace_id": w_id, "public_token": public_token, "title": title, "description": description, "min_score": min_score}), 201
 @app.route('/api/workspaces/<int:workspace_id>/candidates', methods=['GET'])
 def get_workspace_candidates(workspace_id):

@@ -8,7 +8,7 @@ import WorkspaceTabs from '../components/WorkspaceTabs';
 import EditWorkspacePanel from '../components/EditWorkspacePanel';
 import TrustedBy from '../components/TrustedBy';
 
-function App() {
+function App({ session }) {
   const [theme, setTheme] = useState('dark');
   const [workspaces, setWorkspaces] = useState([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(null);
@@ -44,9 +44,15 @@ function App() {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   };
 
+  const getAuthHeaders = () => ({
+    'Authorization': `Bearer ${session?.access_token}`
+  });
+
   const fetchWorkspaces = async () => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/workspaces`);
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/workspaces`, {
+        headers: getAuthHeaders()
+      });
       const data = await res.json();
       setWorkspaces(data.workspaces || []);
       
@@ -61,7 +67,9 @@ function App() {
 
   const fetchHistoricalCandidates = async (id) => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/workspaces/${id}/candidates`);
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/workspaces/${id}/candidates`, {
+        headers: getAuthHeaders()
+      });
       const data = await res.json();
       setCandidates(data.candidates || []);
     } catch (e) {
@@ -80,7 +88,8 @@ function App() {
     if (!activeWorkspaceId) return;
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/workspaces/${activeWorkspaceId}/candidates`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: getAuthHeaders()
       });
       if (res.ok) {
         setCandidates([]);
@@ -95,7 +104,8 @@ function App() {
   const handleDeleteCandidate = async (candidateId) => {
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/candidates/${candidateId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: getAuthHeaders()
       });
       if (res.ok) {
         setCandidates(prev => prev.filter(c => c.id !== candidateId));
@@ -138,7 +148,7 @@ function App() {
             {activeWorkspaceId === null ? (
               // If no workspace active, show Creation form side by side with locked uploader
               <>
-                <JobPanel onWorkspaceCreated={handleWorkspaceCreated} />
+                <JobPanel onWorkspaceCreated={handleWorkspaceCreated} session={session} />
                 <UploadSection activeWorkspace={null} onMatchResults={handleMatchResults} />
               </>
             ) : isEditing ? (
