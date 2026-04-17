@@ -1,0 +1,32 @@
+# Secrets
+.env
+backend/.env
+*.local
+
+# Dependencies
+node_modules
+venv
+backend/venv
+dist
+dist-ssr
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache
+.venv
+
+# Database
+*.db
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
