@@ -7,6 +7,7 @@ import CandidateList from '../components/CandidateList';
 import WorkspaceTabs from '../components/WorkspaceTabs';
 import EditWorkspacePanel from '../components/EditWorkspacePanel';
 import TrustedBy from '../components/TrustedBy';
+import InterviewDashboard from '../components/InterviewDashboard';
 
 function App({ session }) {
   const [theme, setTheme] = useState('dark');
@@ -15,6 +16,7 @@ function App({ session }) {
   const [candidates, setCandidates] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showInterviews, setShowInterviews] = useState(false);
 
   // Load theme
   useEffect(() => {
@@ -226,6 +228,15 @@ function App({ session }) {
                       <p className="share-hint">Share this link with candidates — they can apply directly and will be automatically rated in this campaign.</p>
                     </div>
                   )}
+                  {/* Interview Analytics Button */}
+                  <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)', display: 'flex', gap: '0.75rem' }}>
+                    <button
+                      onClick={() => setShowInterviews(v => !v)}
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem', background: showInterviews ? 'rgba(99,102,241,0.15)' : 'rgba(99,102,241,0.06)', border: `1px solid ${showInterviews ? 'var(--accent-primary)' : 'var(--border-color)'}`, borderRadius: '0.6rem', color: showInterviews ? 'var(--accent-primary)' : 'var(--text-secondary)', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700, fontFamily: 'inherit', transition: 'all 0.2s' }}
+                    >
+                      📊 {showInterviews ? 'Hide' : 'View'} Interview Analytics
+                    </button>
+                  </div>
                 </div>
                 <UploadSection 
                   activeWorkspace={getActiveWorkspaceMeta()} 
@@ -237,12 +248,20 @@ function App({ session }) {
           
           {/* Historical & New Candidates Grid */}
           <div style={{ marginTop: '3rem' }}>
-            <CandidateList 
-              candidatesData={candidates} 
-              onClearAll={handleClearCampaign}
-              onDelete={handleDeleteCandidate}
-              isWorkspaceActive={activeWorkspaceId !== null}
-            />
+            {showInterviews && activeWorkspaceId ? (
+              <div className="glass-panel" style={{ padding: '2rem' }}>
+                <InterviewDashboard workspace={getActiveWorkspaceMeta()} session={session} />
+              </div>
+            ) : (
+              <CandidateList
+                candidatesData={candidates}
+                onClearAll={handleClearCampaign}
+                onDelete={handleDeleteCandidate}
+                isWorkspaceActive={activeWorkspaceId !== null}
+                activeWorkspace={getActiveWorkspaceMeta()}
+                session={session}
+              />
+            )}
           </div>
         </div>
       </main>

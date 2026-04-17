@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import Auth from './pages/Auth';
 import PublicApply from './pages/PublicApply';
 import Account from './pages/Account';
+import InterviewPage from './pages/InterviewPage';
 
 function App() {
   const [session, setSession] = useState(null);
@@ -41,6 +42,10 @@ function App() {
         <Route 
           path="/apply/:token" 
           element={<PublicApply />} 
+        />
+        <Route 
+          path="/interview/:token" 
+          element={<InterviewPage />} 
         />
       </Routes>
     </BrowserRouter>

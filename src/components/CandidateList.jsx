@@ -7,9 +7,14 @@ const getScoreColor = (score) => {
   return { color: '#f87171', glow: 'rgba(248,113,113,0.3)', label: 'Low' };
 };
 
-const CandidateList = ({ candidatesData, onClearAll, onDelete, isWorkspaceActive }) => {
+const CandidateList = ({ candidatesData, onClearAll, onDelete, isWorkspaceActive, activeWorkspace, session }) => {
   const [expandedId, setExpandedId] = useState(null);
   const [activeTab, setActiveTab] = useState('shortlisted');
+  // Interview state
+  const [interviewModal, setInterviewModal] = useState(null); // { link, emailSent, candidateEmail } | null
+  const [sendingId, setSendingId] = useState(null);  // candidate id being processed
+  const [sentIds, setSentIds] = useState({});         // { candidateId: { token, link, emailSent } }
+
 
   if (!candidatesData || candidatesData.length === 0) {
     return (
@@ -35,6 +40,42 @@ const CandidateList = ({ candidatesData, onClearAll, onDelete, isWorkspaceActive
   }
 
   const toggleExpand = (id) => setExpandedId(prev => prev === id ? null : id);
+
+
+  const sendInterview = async (result) => {
+    if (!activeWorkspace) return;
+    setSendingId(result.id);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/interviews/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({
+          workspace_id:    activeWorkspace.id,
+          candidate_id:    result.id,
+          candidate_email: result.email || '',
+          candidate_name:  result.candidate?.name || 'Candidate',
+          job_description: activeWorkspace.description || '',
+          job_title:       activeWorkspace.title || 'the role',
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSentIds(prev => ({ ...prev, [result.id]: { token: data.interview_token, link: data.interview_link, emailSent: data.email_sent } }));
+        setInterviewModal({ link: data.interview_link, emailSent: data.email_sent, candidateEmail: data.candidate_email, candidateName: result.candidate?.name });
+      } else {
+        alert('Failed to create interview: ' + (data.error || 'Unknown error'));
+      }
+    } catch (e) {
+      alert('Could not connect to backend.');
+    } finally {
+      setSendingId(null);
+    }
+  };
+
+
 
   const buildGrid = (list, sectionLabel) => (
     <div className="candidates-grid">
@@ -173,7 +214,23 @@ const CandidateList = ({ candidatesData, onClearAll, onDelete, isWorkspaceActive
                   </>
                 )}
               </button>
+              {/* Send AI Interview — only for SHORTLIST */}
+              {(result.recommendation === 'SHORTLIST' || result.match_category === 'High Match') && activeWorkspace && (
+                sentIds[result.id] ? (
+                  <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>✓ Interview Sent</span>
+                ) : (
+                  <button
+                    className="btn-secondary"
+                    disabled={sendingId === result.id}
+                    onClick={() => sendInterview(result)}
+                    style={{ fontSize: '0.78rem', gap: '0.35rem', opacity: sendingId && sendingId !== result.id ? 0.5 : 1 }}
+                  >
+                    {sendingId === result.id ? '⏳ Generating…' : '🤖 Send AI Interview'}
+                  </button>
+                )
+              )}
             </div>
+
           </div>
         );
       })}
@@ -185,6 +242,9 @@ const CandidateList = ({ candidatesData, onClearAll, onDelete, isWorkspaceActive
 
   return (
     <div className="candidates-container animate-fade-in" style={{ animationDelay: '0.2s' }}>
+      {/* Interview Modal */}
+      {interviewModal && <InterviewModal modal={interviewModal} onClose={() => setInterviewModal(null)} />}
+
       {/* Section header */}
       <div className="candidates-header">
         <div>
