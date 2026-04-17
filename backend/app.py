@@ -191,6 +191,15 @@ def delete_candidate_endpoint(candidate_id):
     database.delete_candidate(candidate_id)
     return jsonify({"success": True}), 200
 
+@app.route('/api/candidates/<int:candidate_id>/recommendation', methods=['PATCH'])
+def update_candidate_recommendation_endpoint(candidate_id):
+    data = request.json
+    recommendation = data.get('recommendation', 'SHORTLIST')
+    if recommendation not in ('SHORTLIST', 'REVIEW', 'REJECT'):
+        return jsonify({"error": "Invalid recommendation value"}), 400
+    database.update_candidate_recommendation(candidate_id, recommendation)
+    return jsonify({"success": True, "recommendation": recommendation}), 200
+
 # --- Public Candidate Application Endpoint ---
 
 @app.route('/api/public/apply/<public_token>', methods=['POST'])

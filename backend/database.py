@@ -127,6 +127,11 @@ def delete_candidate(candidate_id):
     supabase = get_supabase_client()
     supabase.table("candidates").delete().eq("id", candidate_id).execute()
 
+def update_candidate_recommendation(candidate_id, recommendation):
+    supabase = get_supabase_client()
+    supabase.table("candidates").update({"recommendation": recommendation}).eq("id", candidate_id).execute()
+
+
 def clear_workspace_candidates(workspace_id):
     supabase = get_supabase_client()
     supabase.table("candidates").delete().eq("workspace_id", workspace_id).execute()

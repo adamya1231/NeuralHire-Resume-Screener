@@ -7,14 +7,16 @@ const getScoreColor = (score) => {
   return { color: '#f87171', glow: 'rgba(248,113,113,0.3)', label: 'Low' };
 };
 
-const CandidateList = ({ candidatesData, onClearAll, onDelete, isWorkspaceActive, activeWorkspace, session }) => {
-  const [expandedId, setExpandedId] = useState(null);
-  const [activeTab, setActiveTab] = useState('shortlisted');
+const CandidateList = ({ candidatesData, onClearAll, onDelete, isWorkspaceActive, activeWorkspace, session, onCandidateUpdate }) => {
+  const [expandedId, setExpandedId]   = useState(null);
+  const [activeTab, setActiveTab]      = useState('shortlisted');
   // Interview state
-  const [interviewModal, setInterviewModal] = useState(null); // { link, emailSent, candidateEmail } | null
-  const [sendingId, setSendingId] = useState(null);  // candidate id being processed
-  const [sentIds, setSentIds] = useState({});         // { candidateId: { token, link, emailSent } }
-
+  const [interviewModal, setInterviewModal] = useState(null);
+  const [sendingId, setSendingId]      = useState(null);
+  const [sentIds, setSentIds]          = useState({});
+  // Manual shortlist state
+  const [shortlistingId, setShortlistingId] = useState(null);
+  const [overrides, setOverrides]      = useState({}); // { candidateId: 'SHORTLIST' | 'REVIEW' }
 
   if (!candidatesData || candidatesData.length === 0) {
     return (
@@ -40,6 +42,25 @@ const CandidateList = ({ candidatesData, onClearAll, onDelete, isWorkspaceActive
   }
 
   const toggleExpand = (id) => setExpandedId(prev => prev === id ? null : id);
+
+  const shortlistCandidate = async (result) => {
+    setShortlistingId(result.id);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/candidates/${result.id}/recommendation`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ recommendation: 'SHORTLIST' }),
+      });
+      if (res.ok) {
+        setOverrides(prev => ({ ...prev, [result.id]: 'SHORTLIST' }));
+        if (onCandidateUpdate) onCandidateUpdate(result.id, 'SHORTLIST');
+      }
+    } catch (e) {
+      alert('Could not update candidate.');
+    } finally {
+      setShortlistingId(null);
+    }
+  };
 
 
   const sendInterview = async (result) => {
@@ -214,8 +235,8 @@ const CandidateList = ({ candidatesData, onClearAll, onDelete, isWorkspaceActive
                   </>
                 )}
               </button>
-              {/* Send AI Interview — only for SHORTLIST */}
-              {(result.recommendation === 'SHORTLIST' || result.match_category === 'High Match') && activeWorkspace && (
+              {/* Send AI Interview — for SHORTLIST or manually overridden */}
+              {((overrides[result.id] || result.recommendation) === 'SHORTLIST' || result.match_category === 'High Match') && activeWorkspace && (
                 sentIds[result.id] ? (
                   <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>✓ Interview Sent</span>
                 ) : (
@@ -229,6 +250,17 @@ const CandidateList = ({ candidatesData, onClearAll, onDelete, isWorkspaceActive
                   </button>
                 )
               )}
+              {/* Shortlist button for review/reject candidates */}
+              {(overrides[result.id] || result.recommendation) !== 'SHORTLIST' && result.match_category !== 'High Match' && (
+                <button
+                  className='btn-secondary'
+                  disabled={shortlistingId === result.id}
+                  onClick={() => shortlistCandidate(result)}
+                  style={{ fontSize: '0.78rem', gap: '0.35rem', background: 'rgba(16,185,129,0.08)', borderColor: 'rgba(16,185,129,0.3)', color: '#10b981' }}
+                >
+                  {shortlistingId === result.id ? '⏳ Saving...' : '✓ Shortlist'}
+                </button>
+              )}
             </div>
 
           </div>
@@ -237,8 +269,74 @@ const CandidateList = ({ candidatesData, onClearAll, onDelete, isWorkspaceActive
     </div>
   );
 
-  const shortlisted = candidatesData.filter(c => c.recommendation === 'SHORTLIST' || c.match_category === 'High Match');
-  const others = candidatesData.filter(c => c.recommendation !== 'SHORTLIST' && c.match_category !== 'High Match');
+  const shortlisted = candidatesData.filter(c => (overrides[c.id] || c.recommendation) === 'SHORTLIST' || c.match_category === 'High Match');
+  const others = candidatesData.filter(c => (overrides[c.id] || c.recommendation) !== 'SHORTLIST' && c.match_category !== 'High Match');
+
+  // Demo Interview: fake profile for testing the AI interviewer
+  const DemoInterviewTab = () => (
+    <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }} className="animate-fade-in">
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <div style={{ fontSize: '2.5rem' }}>🤖</div>
+        <div>
+          <h3 style={{ color: 'var(--text-primary)', margin: 0 }}>AI Interview Demo</h3>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0 }}>Test the interview experience using any fictional profile — no real candidate needed.</p>
+        </div>
+      </div>
+      {activeWorkspace ? (
+        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+          {[
+            { name: 'Alex Chen', email: 'alex@demo.com', role: 'Senior Dev (Demo)' },
+            { name: 'Priya Sharma', email: 'priya@demo.com', role: 'Product Manager (Demo)' },
+            { name: 'Marcus K.', email: 'marcus@demo.com', role: 'Data Analyst (Demo)' },
+          ].map((profile, i) => (
+            <div key={i} style={{ flex: '1 1 200px', background: 'rgba(99,102,241,0.06)', border: '1px solid var(--border-color)', borderRadius: '0.9rem', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-tertiary))', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700 }}>{profile.name[0]}</div>
+                <div>
+                  <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.9rem' }}>{profile.name}</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>{profile.role}</div>
+                </div>
+              </div>
+              <DemoSendButton profile={profile} />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '0.75rem' }}>
+          ⚠️ Select an active campaign first to generate interview questions.
+        </div>
+      )}
+    </div>
+  );
+
+  const DemoSendButton = ({ profile }) => {
+    const [loading, setLoading] = useState(false);
+    const [link, setLink] = useState(null);
+    const [copied, setCopied] = useState(false);
+    const send = async () => {
+      if (!activeWorkspace) return;
+      setLoading(true);
+      try {
+        const res = await fetch(`${import.meta.env.VITE_API_URL}/api/interviews/create`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+          body: JSON.stringify({ workspace_id: activeWorkspace.id, candidate_id: -1, candidate_name: profile.name, candidate_email: profile.email, job_description: activeWorkspace.description || '', job_title: activeWorkspace.title || 'Role' }),
+        });
+        const data = await res.json();
+        if (data.interview_link) setLink(data.interview_link);
+      } catch { alert('Error creating demo interview'); }
+      finally { setLoading(false); }
+    };
+    const copy = () => { navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+    if (link) return (
+      <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <input readOnly value={link} style={{ flex: 1, padding: '0.45rem 0.6rem', background: 'rgba(99,102,241,0.06)', border: '1px solid var(--border-color)', borderRadius: '0.5rem', color: 'var(--text-primary)', fontSize: '0.72rem', fontFamily: 'monospace' }} />
+        <button onClick={copy} style={{ background: copied ? 'rgba(16,185,129,0.15)' : 'var(--accent-primary)', color: copied ? '#10b981' : 'white', border: 'none', borderRadius: '0.5rem', padding: '0 0.75rem', cursor: 'pointer', fontWeight: 700, fontSize: '0.75rem' }}>{copied ? '✓' : 'Copy'}</button>
+        <a href={link} target="_blank" rel="noreferrer" style={{ background: 'rgba(34,211,238,0.1)', border: '1px solid rgba(34,211,238,0.3)', color: 'var(--accent-secondary)', borderRadius: '0.5rem', padding: '0.4rem 0.7rem', textDecoration: 'none', fontSize: '0.75rem', fontWeight: 700 }}>Open →</a>
+      </div>
+    );
+    return <button onClick={send} disabled={loading} className="btn-secondary" style={{ fontSize: '0.8rem', justifyContent: 'center' }}>{loading ? '⏳ Generating...' : '🚀 Generate Demo Interview'}</button>;
+  };
 
   return (
     <div className="candidates-container animate-fade-in" style={{ animationDelay: '0.2s' }}>
@@ -268,17 +366,14 @@ const CandidateList = ({ candidatesData, onClearAll, onDelete, isWorkspaceActive
       </div>
 
       <div className="tabs-container">
-        <button 
-          className={`tab-btn ${activeTab === 'shortlisted' ? 'active-tab' : ''}`}
-          onClick={() => setActiveTab('shortlisted')}
-        >
+        <button className={`tab-btn ${activeTab === 'shortlisted' ? 'active-tab' : ''}`} onClick={() => setActiveTab('shortlisted')}>
           Shortlisted ({shortlisted.length})
         </button>
-        <button 
-          className={`tab-btn ${activeTab === 'review' ? 'active-tab' : ''}`}
-          onClick={() => setActiveTab('review')}
-        >
+        <button className={`tab-btn ${activeTab === 'review' ? 'active-tab' : ''}`} onClick={() => setActiveTab('review')}>
           For Review ({others.length})
+        </button>
+        <button className={`tab-btn ${activeTab === 'demo' ? 'active-tab' : ''}`} onClick={() => setActiveTab('demo')} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+          🤖 AI Interview Demo
         </button>
       </div>
 
@@ -305,6 +400,8 @@ const CandidateList = ({ candidatesData, onClearAll, onDelete, isWorkspaceActive
            <p>No candidates in the review queue.</p>
         </div>
       )}
+
+      {activeTab === 'demo' && <DemoInterviewTab />}
 
       <style>{`
         .empty-state {
