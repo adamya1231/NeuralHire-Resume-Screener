@@ -116,16 +116,19 @@ const JobPanel = ({ onWorkspaceCreated, session }) => {
         </div>
         <div className="slider-row">
           <input
-            type="range" min="50" max="100" step="1"
+            type="range" min="0" max="100" step="1"
             value={minScore}
-            onChange={(e) => setMinScore(e.target.value)}
+            onChange={(e) => setMinScore(Number(e.target.value))}
             className="styled-range"
             style={{ '--thumb-color': scoreColor, flex: 1 }}
           />
           <input
-            type="number" min="50" max="100"
+            type="number" min="0" max="100"
             value={minScore}
-            onChange={(e) => setMinScore(Math.max(50, Math.min(100, Number(e.target.value))))}
+            onChange={(e) => {
+              const v = e.target.value === '' ? '' : Math.max(0, Math.min(100, Number(e.target.value)));
+              setMinScore(v);
+            }}
             className="styled-input score-num-input"
             style={{ '--border-focus': scoreColor }}
           />
