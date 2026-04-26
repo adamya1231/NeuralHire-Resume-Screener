@@ -1,374 +1,595 @@
-import React, { useState, useEffect } from 'react';
-
-const PIPELINE_STEPS = [
-  { icon: '📄', label: 'PDF Parsing', desc: 'Extracting text & structure' },
-  { icon: '🧬', label: 'NLP Analysis', desc: 'Deep semantic matching' },
-  { icon: '⚖️', label: 'Bias Audit', desc: 'Removing institutional bias' },
-  { icon: '🎯', label: 'Score Engine', desc: 'Ranking by match quality' },
-  { icon: '🚩', label: 'Red Flags', desc: 'Detecting inconsistencies' },
-  { icon: '✅', label: 'Shortlisting', desc: 'Top candidates selected' },
-];
+import React, { useEffect, useRef } from 'react';
 
 const Hero = () => {
-  const [activeStep, setActiveStep] = useState(0);
+  const orbRef = useRef(null);
 
+  // Subtle mouse parallax on orbs
   useEffect(() => {
-    const interval = setInterval(() => {
-      setActiveStep(prev => (prev + 1) % PIPELINE_STEPS.length);
-    }, 1600);
-    return () => clearInterval(interval);
+    const handleMouse = (e) => {
+      if (!orbRef.current) return;
+      const x = (e.clientX / window.innerWidth - 0.5) * 24;
+      const y = (e.clientY / window.innerHeight - 0.5) * 24;
+      orbRef.current.style.transform = `translate(${x}px, ${y}px)`;
+    };
+    window.addEventListener('mousemove', handleMouse);
+    return () => window.removeEventListener('mousemove', handleMouse);
   }, []);
 
   return (
-    <section className="hero-section animate-fade-in">
-      {/* Ambient orbs */}
-      <div className="hero-orb orb-purple" />
-      <div className="hero-orb orb-cyan" />
-      <div className="hero-orb orb-violet" />
+    <section className="hero-section">
 
-      <div className="hero-grid">
-        {/* ─── Left Column ─────────────────────────── */}
-        <div className="hero-left animate-slide-up">
-          <div className="hero-badge">
-            <span className="badge-dot" />
-            AI-Powered Recruitment Platform
+      {/* Background Orbs */}
+      <div className="hero-orbs" ref={orbRef}>
+        <div className="orb orb-1" />
+        <div className="orb orb-2" />
+        <div className="orb orb-3" />
+      </div>
+
+      {/* Content */}
+      <div className="hero-inner">
+
+        {/* Left: Headline + Strip */}
+        <div className="hero-left animate-fade-in">
+          <div className="hero-eyebrow">
+            <span className="eyebrow-dot" />
+            <span>AI-Powered Blind Recruitment</span>
           </div>
 
-          <h1 className="heading-1 hero-title">
-            Identify Champions<br />with Drona AI
+          <h1 className="hero-headline">
+            <span className="line-reveal" style={{ animationDelay: '0.1s' }}>Find Your</span>
+            <span className="line-reveal line-accent" style={{ animationDelay: '0.25s' }}>Champions.</span>
+            <span className="line-reveal line-sub" style={{ animationDelay: '0.4s' }}>Eliminate Bias.</span>
           </h1>
 
-          <p className="hero-subtitle">
-            Inspired by the legendary guru of potential. Drona AI uses advanced NLP
-            to analyse resumes, detect red flags, and rank the most promising
-            talent with surgical precision — bias-free.
-          </p>
-
-          <div className="hero-actions">
-            <button className="btn-primary hero-cta">
-              Start Hiring
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-            </button>
-            <button className="btn-secondary">View Demo</button>
-          </div>
-
-          {/* Stats strip */}
-          <div className="stats-strip">
-            {[
-              { value: '10×', label: 'Faster Screening' },
-              { value: '85%', label: 'Bias Reduced' },
-              { value: '99%', label: 'Accuracy Rate' },
-              { value: '7', label: 'AI Steps' },
-            ].map((s, i) => (
-              <div className="stat-item" key={i}>
-                <div className="stat-value">{s.value}</div>
-                <div className="stat-label">{s.label}</div>
-              </div>
-            ))}
+          {/* AI Stats Strip */}
+          <div className="hero-stats animate-slide-up" style={{ animationDelay: '0.6s' }}>
+            <div className="stat-item">
+              <span className="stat-num">12.8K</span>
+              <span className="stat-lbl">Resumes Ranked</span>
+            </div>
+            <div className="stat-sep" />
+            <div className="stat-item">
+              <span className="stat-num">99.2%</span>
+              <span className="stat-lbl">Bias Eliminated</span>
+            </div>
+            <div className="stat-sep" />
+            <div className="stat-item">
+              <span className="stat-num">&lt;8s</span>
+              <span className="stat-lbl">Per Resume</span>
+            </div>
+            <div className="stat-sep" />
+            <div className="stat-item">
+              <span className="stat-live-dot" />
+              <span className="stat-lbl" style={{ fontWeight: 700 }}>LLM Online</span>
+            </div>
           </div>
         </div>
 
-        {/* ─── Right Column: Pipeline Card ─────────── */}
-        <div className="hero-right animate-scale-in" style={{ animationDelay: '0.2s' }}>
-          <div className="pipeline-card glass-panel">
-            <div className="pipeline-header">
-              <div className="pipeline-title">
-                <div className="live-dot" />
-                Live AI Pipeline
+        {/* Right: Flow Visualization */}
+        <div className="hero-right animate-slide-right" style={{ animationDelay: '0.3s' }}>
+          <div className="flow-card">
+
+            {/* Header bar */}
+            <div className="flow-card-header">
+              <div className="flow-dots">
+                <span /><span /><span />
               </div>
-              <div className="pipeline-score">
-                Score Preview <span>87</span>
-              </div>
+              <span className="flow-card-title">DRONA PIPELINE</span>
+              <span className="flow-badge">LIVE</span>
             </div>
 
-            <div className="pipeline-steps">
-              {PIPELINE_STEPS.map((step, i) => (
-                <div
-                  key={i}
-                  className={`pipeline-step ${i === activeStep ? 'active' : ''} ${i < activeStep ? 'done' : ''}`}
-                >
-                  <div className="step-icon-wrap">
-                    {i === activeStep ? (
-                      <div className="step-spinner" />
-                    ) : (
-                      <span className="step-emoji">{step.icon}</span>
-                    )}
-                  </div>
-                  <div className="step-info">
-                    <div className="step-label">{step.label}</div>
-                    <div className="step-desc">{step.desc}</div>
-                  </div>
-                  {i < activeStep && (
-                    <svg className="step-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  )}
+            {/* Pipeline nodes */}
+            <div className="pipeline">
+              {/* Node 1 */}
+              <div className="pipeline-step">
+                <div className="pipe-icon pipe-doc">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="16" y1="13" x2="8" y2="13"/>
+                    <line x1="16" y1="17" x2="8" y2="17"/>
+                  </svg>
                 </div>
-              ))}
+                <div className="pipe-text">
+                  <span className="pipe-name">Resume Intake</span>
+                  <span className="pipe-sub">PDF / DOCX</span>
+                </div>
+                <div className="pipe-status status-done">✓</div>
+              </div>
+
+              <div className="pipe-connector">
+                <div className="pipe-dot" style={{ animationDelay: '0s' }} />
+                <div className="pipe-dot" style={{ animationDelay: '0.3s' }} />
+                <div className="pipe-dot" style={{ animationDelay: '0.6s' }} />
+              </div>
+
+              {/* Node 2 — LLM Brain */}
+              <div className="pipeline-step pipe-center">
+                <div className="pipe-icon pipe-ai pulse-anim">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <rect x="4" y="4" width="16" height="16" rx="2"/>
+                    <rect x="9" y="9" width="6" height="6"/>
+                    <line x1="9" y1="1" x2="9" y2="4"/>
+                    <line x1="15" y1="1" x2="15" y2="4"/>
+                    <line x1="9" y1="20" x2="9" y2="23"/>
+                    <line x1="15" y1="20" x2="15" y2="23"/>
+                    <line x1="20" y1="9" x2="23" y2="9"/>
+                    <line x1="20" y1="14" x2="23" y2="14"/>
+                    <line x1="1" y1="9" x2="4" y2="9"/>
+                    <line x1="1" y1="14" x2="4" y2="14"/>
+                  </svg>
+                </div>
+                <div className="pipe-text">
+                  <span className="pipe-name pipe-ai-label">LLM Brain</span>
+                  <span className="pipe-sub">Semantic Analysis</span>
+                </div>
+                <div className="pipe-status status-live">●</div>
+              </div>
+
+              <div className="pipe-connector pipe-connector-right">
+                <div className="pipe-dot pipe-dot-green" style={{ animationDelay: '0.1s' }} />
+                <div className="pipe-dot pipe-dot-green" style={{ animationDelay: '0.4s' }} />
+                <div className="pipe-dot pipe-dot-green" style={{ animationDelay: '0.7s' }} />
+              </div>
+
+              {/* Node 3 */}
+              <div className="pipeline-step">
+                <div className="pipe-icon pipe-result">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                    <circle cx="9" cy="7" r="4"/>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                  </svg>
+                </div>
+                <div className="pipe-text">
+                  <span className="pipe-name">Ranked Output</span>
+                  <span className="pipe-sub">Bias-Free</span>
+                </div>
+                <div className="pipe-status status-done">✓</div>
+              </div>
             </div>
 
-            <div className="pipeline-footer">
-              <div className="progress-bar">
-                <div className="progress-fill" style={{ width: `${((activeStep + 1) / PIPELINE_STEPS.length) * 100}%` }} />
-              </div>
-              <span className="progress-label">{activeStep + 1} / {PIPELINE_STEPS.length} steps</span>
+            {/* Live ticker */}
+            <div className="flow-ticker">
+              <span className="ticker-label">LAST PROCESSED</span>
+              <span className="ticker-val">Senior ML Engineer · Score 94 · SHORTLIST</span>
             </div>
+
           </div>
         </div>
       </div>
 
       <style>{`
         .hero-section {
-          padding: 7rem 0 3rem;
+          padding: 8rem 2rem 4rem;
+          max-width: 1200px;
+          margin: 0 auto;
           position: relative;
-          overflow: hidden;
+          min-height: 100vh;
+          display: flex;
+          align-items: center;
         }
 
-        .hero-orb {
+        /* Orbs */
+        .hero-orbs {
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          z-index: 0;
+          transition: transform 0.6s ease-out;
+        }
+
+        .orb {
           position: absolute;
           border-radius: 50%;
           filter: blur(80px);
-          pointer-events: none;
-          opacity: 0.5;
+          opacity: 0.35;
         }
-        .orb-purple { width: 500px; height: 500px; background: rgba(99,102,241,0.15); top: -100px; left: -100px; animation: float 14s ease-in-out infinite alternate; }
-        .orb-cyan   { width: 400px; height: 400px; background: rgba(34,211,238,0.12); bottom: 0; right: -80px; animation: float 10s ease-in-out infinite alternate-reverse; }
-        .orb-violet { width: 300px; height: 300px; background: rgba(167,139,250,0.10); top: 40%; left: 50%; transform: translate(-50%,-50%); animation: float 18s ease-in-out infinite alternate; }
 
-        .hero-grid {
+        .orb-1 {
+          width: 380px;
+          height: 380px;
+          background: radial-gradient(circle, #6D8196, transparent);
+          top: 10%;
+          right: 5%;
+          animation: orb-drift 14s ease-in-out infinite;
+        }
+
+        .orb-2 {
+          width: 260px;
+          height: 260px;
+          background: radial-gradient(circle, #CBCBCB, transparent);
+          bottom: 15%;
+          left: 10%;
+          animation: orb-drift 18s ease-in-out infinite reverse;
+        }
+
+        .orb-3 {
+          width: 180px;
+          height: 180px;
+          background: radial-gradient(circle, #4A4A4A, transparent);
+          top: 50%;
+          left: 50%;
+          animation: orb-drift 22s ease-in-out infinite;
+          opacity: 0.15;
+        }
+
+        .dark .orb-1 { opacity: 0.25; }
+        .dark .orb-2 { opacity: 0.2; }
+
+        /* Hero Layout */
+        .hero-inner {
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 4rem;
+          gap: 5rem;
           align-items: center;
           position: relative;
-          z-index: 2;
+          z-index: 1;
+          width: 100%;
         }
 
-        .hero-left { display: flex; flex-direction: column; gap: 1.75rem; }
+        @media (max-width: 900px) {
+          .hero-inner { grid-template-columns: 1fr; gap: 3rem; }
+          .hero-section { padding-top: 7rem; }
+        }
 
-        .hero-badge {
+        /* Left side */
+        .hero-left { display: flex; flex-direction: column; gap: 2rem; }
+
+        .hero-eyebrow {
           display: inline-flex;
           align-items: center;
-          gap: 0.5rem;
-          background: rgba(99,102,241,0.08);
-          border: 1px solid rgba(99,102,241,0.2);
-          color: var(--accent-primary);
-          padding: 0.35rem 0.9rem;
-          border-radius: 9999px;
-          font-size: 0.75rem;
-          font-weight: 600;
-          letter-spacing: 0.03em;
-          width: fit-content;
-        }
-
-        .badge-dot {
-          width: 7px; height: 7px;
-          background: var(--success-color);
-          border-radius: 50%;
-          box-shadow: 0 0 8px var(--success-color);
-          animation: pulseGlow 2s ease-in-out infinite;
-        }
-
-        .hero-title { margin: 0; }
-
-        .hero-subtitle {
-          font-size: 1.05rem;
-          color: var(--text-secondary);
-          line-height: 1.75;
-          max-width: 480px;
-        }
-
-        .hero-actions {
-          display: flex;
-          gap: 1rem;
-          align-items: center;
-        }
-
-        .hero-cta {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          font-size: 1rem;
-          padding: 0.85rem 2rem;
-        }
-
-        /* Stats strip */
-        .stats-strip {
-          display: flex;
-          gap: 2.5rem;
-          padding-top: 1rem;
-          border-top: 1px solid var(--border-color);
-        }
-
-        .stat-item { display: flex; flex-direction: column; gap: 0.2rem; }
-
-        .stat-value {
-          font-size: 1.5rem;
+          gap: 0.6rem;
+          font-family: var(--font-mono);
+          font-size: 0.68rem;
           font-weight: 700;
-          background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-          -webkit-background-clip: text;
-          background-clip: text;
-          color: transparent;
-          line-height: 1;
-        }
-
-        .stat-label {
-          font-size: 0.72rem;
-          color: var(--text-secondary);
-          font-weight: 500;
-          letter-spacing: 0.02em;
-        }
-
-        /* Pipeline Card */
-        .hero-right { display: flex; align-items: center; justify-content: center; }
-
-        .pipeline-card {
-          width: 100%;
-          max-width: 420px;
-          padding: 1.5rem;
-          display: flex;
-          flex-direction: column;
-          gap: 1.25rem;
-          border: 1px solid var(--glass-border);
-          animation: pulseGlow 5s ease-in-out infinite;
-        }
-
-        .pipeline-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-
-        .pipeline-title {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          font-size: 0.8rem;
-          font-weight: 700;
-          letter-spacing: 0.05em;
-          color: var(--text-secondary);
+          letter-spacing: 0.14em;
           text-transform: uppercase;
+          color: var(--ink-steel);
+          border: 1px solid var(--border-color);
+          padding: 0.3rem 0.9rem;
+          border-radius: 999px;
+          width: fit-content;
+          background: var(--surface-color);
         }
 
-        .live-dot {
-          width: 8px; height: 8px;
-          background: var(--success-color);
+        .eyebrow-dot {
+          width: 6px;
+          height: 6px;
           border-radius: 50%;
-          box-shadow: 0 0 10px var(--success-color);
-          animation: pulseGlow 2s ease-in-out infinite;
+          background: var(--ink-steel);
+          animation: pulse 2s infinite;
         }
 
-        .pipeline-score {
-          font-size: 0.8rem;
-          color: var(--text-secondary);
-          font-weight: 500;
-        }
-
-        .pipeline-score span {
-          display: inline-block;
-          margin-left: 0.4rem;
-          font-size: 1.1rem;
-          font-weight: 700;
-          background: linear-gradient(135deg, var(--success-color), var(--accent-secondary));
-          -webkit-background-clip: text;
-          background-clip: text;
-          color: transparent;
-        }
-
-        .pipeline-steps {
+        /* Headline */
+        .hero-headline {
           display: flex;
           flex-direction: column;
-          gap: 0.4rem;
+          font-family: var(--font-heading);
+          font-size: clamp(3rem, 6vw, 5rem);
+          font-weight: 700;
+          line-height: 1;
+          letter-spacing: -0.05em;
+          gap: 0.1em;
+        }
+
+        .line-reveal {
+          display: block;
+          color: var(--text-primary);
+          opacity: 0;
+          animation: slideUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        .line-accent {
+          color: var(--ink-steel);
+          position: relative;
+        }
+
+        .line-accent::after {
+          content: '';
+          position: absolute;
+          bottom: 4px;
+          left: 0;
+          right: 0;
+          height: 4px;
+          background: var(--ink-gray);
+          border-radius: 2px;
+          transform: scaleX(0);
+          transform-origin: left;
+          animation: inkReveal 0.8s 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        .line-sub {
+          color: var(--ink-gray);
+          font-size: 0.65em;
+          font-weight: 400;
+          letter-spacing: -0.02em;
+        }
+
+        /* Stats Strip */
+        .hero-stats {
+          display: flex;
+          align-items: center;
+          gap: 0;
+          background: var(--surface-color);
+          border: 1px solid var(--border-color);
+          border-radius: 1rem;
+          padding: 1rem 1.5rem;
+          width: fit-content;
+          box-shadow: var(--shadow-sm);
+          flex-wrap: wrap;
+          row-gap: 0.5rem;
+        }
+
+        .stat-item {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          padding: 0 1.2rem;
+          gap: 0.15rem;
+        }
+
+        .stat-num {
+          font-family: var(--font-heading);
+          font-size: 1.3rem;
+          font-weight: 700;
+          color: var(--ink-charcoal);
+          letter-spacing: -0.04em;
+        }
+
+        .dark .stat-num { color: var(--ink-ivory); }
+
+        .stat-lbl {
+          font-family: var(--font-mono);
+          font-size: 0.58rem;
+          font-weight: 700;
+          color: var(--text-secondary);
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          white-space: nowrap;
+        }
+
+        .stat-sep {
+          width: 1px;
+          height: 28px;
+          background: var(--border-color);
+          flex-shrink: 0;
+        }
+
+        .stat-live-dot {
+          display: block;
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: var(--success-color);
+          margin-bottom: 0.2rem;
+          animation: pulse 1.4s ease-in-out infinite;
+        }
+
+        /* ——— Flow Card (Right Side) ——— */
+        .flow-card {
+          background: var(--surface-color);
+          border: 1.5px solid var(--border-color);
+          border-radius: 1.5rem;
+          padding: 1.75rem;
+          box-shadow: var(--shadow-md);
+          transition: box-shadow 0.4s;
+          animation: floatY 6s ease-in-out infinite;
+        }
+
+        .flow-card:hover {
+          box-shadow: var(--shadow-lg);
+        }
+
+        .flow-card-header {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          margin-bottom: 1.75rem;
+          padding-bottom: 1rem;
+          border-bottom: 1px solid var(--border-color);
+        }
+
+        .flow-dots {
+          display: flex;
+          gap: 5px;
+        }
+        .flow-dots span {
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+          background: var(--border-color);
+        }
+        .flow-dots span:nth-child(1) { background: #ff6b6b; }
+        .flow-dots span:nth-child(2) { background: #ffd93d; }
+        .flow-dots span:nth-child(3) { background: #6bcb77; }
+
+        .flow-card-title {
+          flex: 1;
+          font-family: var(--font-mono);
+          font-size: 0.65rem;
+          font-weight: 700;
+          letter-spacing: 0.15em;
+          color: var(--text-secondary);
+        }
+
+        .flow-badge {
+          font-family: var(--font-mono);
+          font-size: 0.58rem;
+          font-weight: 700;
+          letter-spacing: 0.12em;
+          color: var(--success-color);
+          border: 1px solid var(--success-color);
+          padding: 2px 8px;
+          border-radius: 999px;
+          animation: pulse 2s infinite;
+        }
+
+        /* Pipeline */
+        .pipeline {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0;
+          margin-bottom: 1.75rem;
         }
 
         .pipeline-step {
           display: flex;
+          flex-direction: column;
           align-items: center;
-          gap: 0.9rem;
-          padding: 0.6rem 0.8rem;
-          border-radius: 0.6rem;
-          border: 1px solid transparent;
-          transition: all 0.3s ease;
-          opacity: 0.45;
+          gap: 0.6rem;
+          width: 100px;
         }
 
-        .pipeline-step.done {
-          opacity: 0.65;
-          background: rgba(16,185,129,0.04);
+        .pipe-connector {
+          flex: 1;
+          height: 2px;
+          background: var(--border-color);
+          position: relative;
+          min-width: 32px;
         }
 
-        .pipeline-step.active {
-          opacity: 1;
-          border-color: rgba(99,102,241,0.3);
-          background: rgba(99,102,241,0.07);
-          box-shadow: 0 0 20px rgba(99,102,241,0.1);
+        .pipe-dot {
+          width: 7px;
+          height: 7px;
+          border-radius: 50%;
+          background: var(--ink-steel);
+          opacity: 0;
+          position: absolute;
+          top: 50%;
+          transform: translateY(-50%);
+          left: 0;
+          animation: moveData 1.8s linear infinite;
         }
 
-        .step-icon-wrap {
-          width: 32px; height: 32px;
-          display: flex; align-items: center; justify-content: center;
+        .pipe-dot-green {
+          background: var(--success-color);
+        }
+
+        @keyframes moveData {
+          0%   { left: 0%;   opacity: 0; }
+          15%  { opacity: 1; }
+          85%  { opacity: 1; }
+          100% { left: 100%; opacity: 0; }
+        }
+
+        .pipe-icon {
+          width: 52px;
+          height: 52px;
+          border-radius: 1rem;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: var(--panel-bg);
+          border: 1.5px solid var(--border-color);
+          color: var(--text-secondary);
+          transition: all 0.3s;
           flex-shrink: 0;
         }
 
-        .step-emoji { font-size: 1.1rem; }
+        .pipe-doc  { border-color: rgba(109,129,150,0.3); }
+        .pipe-result { border-color: rgba(74,124,89,0.3);  color: var(--success-color); }
 
-        .step-spinner {
-          width: 22px; height: 22px;
-          border: 2.5px solid rgba(99,102,241,0.15);
-          border-top-color: var(--accent-primary);
+        .pipe-ai {
+          width: 60px;
+          height: 60px;
           border-radius: 50%;
-          animation: spin 0.65s linear infinite;
+          border: 2px solid var(--ink-steel);
+          color: var(--ink-steel);
+          background: var(--surface-color);
+          box-shadow: 0 0 0 6px rgba(109,129,150,0.08);
         }
 
-        .step-info { flex: 1; }
+        .pulse-anim {
+          animation: aiPulse 2.5s ease-in-out infinite;
+        }
 
-        .step-label {
-          font-size: 0.82rem;
+        @keyframes aiPulse {
+          0%, 100% { box-shadow: 0 0 0 6px rgba(109,129,150,0.08), 0 0 0 0 rgba(109,129,150,0.2); }
+          50%       { box-shadow: 0 0 0 10px rgba(109,129,150,0.05), 0 0 20px rgba(109,129,150,0.15); }
+        }
+
+        .pipe-text {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.15rem;
+          text-align: center;
+        }
+
+        .pipe-name {
+          font-family: var(--font-heading);
+          font-size: 0.7rem;
           font-weight: 600;
           color: var(--text-primary);
-          line-height: 1;
         }
 
-        .step-desc {
-          font-size: 0.7rem;
+        .pipe-ai-label { color: var(--ink-steel); }
+
+        .pipe-sub {
+          font-family: var(--font-mono);
+          font-size: 0.58rem;
           color: var(--text-secondary);
-          margin-top: 0.15rem;
+          letter-spacing: 0.04em;
         }
 
-        .step-check { color: var(--success-color); flex-shrink: 0; }
+        .pipe-status {
+          font-size: 0.6rem;
+          font-weight: 700;
+          padding: 2px 8px;
+          border-radius: 999px;
+          font-family: var(--font-mono);
+        }
 
-        .pipeline-footer {
+        .status-done {
+          color: var(--success-color);
+          background: rgba(74,124,89,0.1);
+          border: 1px solid rgba(74,124,89,0.2);
+        }
+
+        .status-live {
+          color: var(--ink-steel);
+          background: rgba(109,129,150,0.1);
+          border: 1px solid rgba(109,129,150,0.2);
+          animation: pulse 1.4s infinite;
+        }
+
+        /* Ticker */
+        .flow-ticker {
+          background: var(--panel-bg);
+          border: 1px solid var(--border-color);
+          border-radius: 0.75rem;
+          padding: 0.75rem 1rem;
           display: flex;
           align-items: center;
-          gap: 0.75rem;
-        }
-
-        .progress-bar {
-          flex: 1;
-          height: 4px;
-          background: rgba(99,102,241,0.12);
-          border-radius: 9999px;
+          gap: 1rem;
           overflow: hidden;
         }
 
-        .progress-fill {
-          height: 100%;
-          background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
-          border-radius: 9999px;
-          transition: width 0.4s cubic-bezier(0.4,0,0.2,1);
-        }
-
-        .progress-label {
-          font-size: 0.7rem;
-          font-weight: 600;
+        .ticker-label {
+          font-family: var(--font-mono);
+          font-size: 0.58rem;
+          font-weight: 700;
+          letter-spacing: 0.12em;
           color: var(--text-secondary);
           white-space: nowrap;
+          flex-shrink: 0;
         }
 
-        @media (max-width: 900px) {
-          .hero-grid { grid-template-columns: 1fr; gap: 3rem; }
-          .hero-right { display: none; }
-          .hero-section { padding: 6rem 0 2rem; }
+        .ticker-val {
+          font-family: var(--font-mono);
+          font-size: 0.68rem;
+          color: var(--ink-steel);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        @media (max-width: 768px) {
+          .hero-stats { padding: 0.75rem 1rem; }
+          .stat-item { padding: 0 0.75rem; }
         }
       `}</style>
     </section>

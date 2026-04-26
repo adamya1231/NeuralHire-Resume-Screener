@@ -41,9 +41,21 @@ This document serves as a comprehensive, easy-to-understand history of every maj
 **What we did:** We expanded the database by writing dedicated `UPDATE` and `DELETE` SQL scripts. On the React UI, we integrated an `<EditWorkspacePanel />` component that seamlessly binds right into the Dashboard header.
 **Why it matters:** Recruiters can now organically pivot an ongoing campaign! Without erasing existing records, you can click "Edit" to dynamically adjust a previously locked Job Description or manually change the AI threshold halfway through hiring. Alternatively, you can permanently wipe a dead workspace right out of the database clicking the Red Delete icon.
 
-## 11. 🎨 Unified Design System & Light Mode Optimization
-**What we did:** We completely refactored the CSS architecture into a centralized "Design System" in `src/index.css`. We ripped out hardcoded dark-mode HEX colors from individual components and replaced them with dynamic CSS tokens like `var(--panel-bg)` and `var(--surface-color)`.
-**Why it matters:** This fixed the "eye irritation" issues in Light Mode. The application now seamlessly and beautifully transitions between a professional "Enterprise White" theme and a "Midnight Neon" dark mode, ensuring perfect legibility and a premium feel regardless of the user's theme preference. 
+## 12. 🛡️ Multi-Face Detection Security (Anti-Cheating)
+**What we did:** Integrated Google's **BlazeFace** (TensorFlow.js) directly into the client-side webcam feed in `VoiceRoom.jsx`.
+**Why it matters:** The system now performs a real-time "Security Scan" before launching an interview. If more than one face is detected in the frame, the interview is strictly blocked with a popup warning. This ensures the integrity of the interview process by preventing unauthorized assistance or proxy candidates.
+
+## 13. 🎙️ AI Voice Interviewing (Vapi.ai Engine)
+**What we did:** Integrated the **Vapi.ai SDK** to create a fully conversational voice interview experience. We built a custom "Connecting Buffer" and a dynamic interface that tracks candidate speech in real-time.
+**Why it matters:** Candidates no longer just fill out forms; they have a natural, low-latency conversation with an AI Interviewer (Drona AI). The system handles audio stream management, noise cancellation, and real-time transcription entirely in the browser.
+
+## 14. 📊 Forensic Interview Evaluation
+**What we did:** Built a specialized `INTERVIEW_EVALUATOR` prompt that contrast-checks the live interview transcript against the specific Job Description and the candidate's Resume.
+**Why it matters:** As soon as the call ends, the system performs a multi-dimensional analysis of the candidate's technical competency, communication skills, and role-fit. It generates an overall score and a detailed feedback summary, which are then permanently stored in the SQLite database.
+
+## 15. 💹 Interactive Result Visualizations
+**What we did:** Implemented a sleek, SVG-based circular score chart and feedback UI to present interview results.
+**Why it matters:** Recruiters get an instant, visual snapshot of a candidate's performance. The UI transitions smoothly from the "Interview Room" to a "Results Dashboard," making the evaluation process feel premium, high-tech, and extremely data-driven.
 
 ---
-*Last updated: April 16, 2026*
+*Last updated: April 17, 2026*

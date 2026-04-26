@@ -1,6 +1,6 @@
 import React from 'react';
 
-const WorkspaceTabs = ({ workspaces, activeWorkspaceId, onSelectWorkspace, onNewWorkspace }) => {
+const WorkspaceTabs = ({ workspaces, activeWorkspaceId, onSelectWorkspace, onNewWorkspace, onDeleteWorkspace }) => {
   return (
     <div className="workspace-tabs-container">
       <div className="tabs-scroll">
@@ -16,13 +16,27 @@ const WorkspaceTabs = ({ workspaces, activeWorkspaceId, onSelectWorkspace, onNew
         </button>
         
         {workspaces.map(w => (
-          <button 
-            key={w.id} 
-            className={`workspace-tab ${activeWorkspaceId === w.id ? 'active' : ''}`}
-            onClick={() => onSelectWorkspace(w.id)}
+          <div
+            key={w.id}
+            className={`workspace-tab-wrapper ${activeWorkspaceId === w.id ? 'active' : ''}`}
           >
-            {w.title}
-          </button>
+            <button
+              className={`workspace-tab ${activeWorkspaceId === w.id ? 'active' : ''}`}
+              onClick={() => onSelectWorkspace(w.id)}
+            >
+              {w.title}
+            </button>
+            <button
+              className="tab-close-btn"
+              title="Remove campaign"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteWorkspace && onDeleteWorkspace(w.id);
+              }}
+            >
+              ×
+            </button>
+          </div>
         ))}
       </div>
 
@@ -68,6 +82,42 @@ const WorkspaceTabs = ({ workspaces, activeWorkspaceId, onSelectWorkspace, onNew
         .workspace-tab.active {
           color: var(--accent-primary);
           border-bottom-color: var(--accent-primary);
+        }
+
+        .workspace-tab-wrapper {
+          position: relative;
+          display: flex;
+          align-items: center;
+        }
+
+        .workspace-tab-wrapper .tab-close-btn {
+          display: none;
+          position: absolute;
+          right: -4px;
+          top: 4px;
+          width: 18px;
+          height: 18px;
+          border-radius: 50%;
+          border: none;
+          background: var(--danger-color);
+          color: white;
+          font-size: 0.85rem;
+          line-height: 1;
+          cursor: pointer;
+          align-items: center;
+          justify-content: center;
+          padding: 0;
+          transition: all 0.2s;
+          z-index: 10;
+        }
+
+        .workspace-tab-wrapper:hover .tab-close-btn {
+          display: flex;
+        }
+
+        .tab-close-btn:hover {
+          background: #cc0000;
+          transform: scale(1.15);
         }
 
         .new-tab {
