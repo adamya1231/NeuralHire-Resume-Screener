@@ -1,304 +1,862 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
+import { api } from '../api';
 
-/* ─── Frequency Polygon SVG Chart ─────────────────────────────────── */
-const FrequencyPolygonChart = ({ interviews }) => {
-  const completed = interviews.filter(i => i.status === 'completed' && i.overall_score != null);
+const StatisticsChart = ({ sessions }) => {
+  if (!sessions || sessions.length === 0) return null;
 
-  // 10 bins: 0-10, 10-20, ..., 90-100
-  const bins = Array.from({ length: 10 }, (_, i) => ({
-    label: `${i * 10}–${(i + 1) * 10}`,
-    min: i * 10, max: (i + 1) * 10, count: 0,
-  }));
-  bins[9].max = 101;
-  completed.forEach(iv => {
-    const b = bins.find(b => iv.overall_score >= b.min && iv.overall_score < b.max);
-    if (b) b.count++;
-  });
+  const chartHeight = 240;
+  const padding = 80;
+  // Dynamic spacing: more candidates = tighter spacing but with scroll
+  const pointGap = sessions.length > 10 ? 60 : 100;
+  const chartWidth = Math.max(800, sessions.length * pointGap + padding * 2);
+  const maxScore = 100;
 
-  const W = 560, H = 200, PL = 38, PR = 16, PT = 16, PB = 54;
-  const cW = W - PL - PR, cH = H - PT - PB;
-  const maxCount = Math.max(...bins.map(b => b.count), 1);
+  // Generate path points for Frequency Polygon
+  const points = sessions.map((s, i) => {
+    const x = padding + i * pointGap;
+    const y = chartHeight - (s.overall_score / maxScore) * chartHeight;
+    return `${x},${y}`;
+  }).join(' ');
 
-  const pts = bins.map((b, i) => ({
-    x: PL + (i / (bins.length - 1)) * cW,
-    y: PT + cH - (b.count / maxCount) * cH,
-    ...b,
-  }));
-
-  const fillPath =
-    pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') +
-    ` L ${pts[pts.length - 1].x} ${PT + cH} L ${pts[0].x} ${PT + cH} Z`;
-
-  const linePath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-
-  const yLabels = [0, Math.ceil(maxCount / 2), maxCount].filter((v, i, arr) => arr.indexOf(v) === i);
+  // Area points
+  const areaPoints = `${padding},${chartHeight} ${points} ${padding + (sessions.length - 1) * pointGap},${chartHeight}`;
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto' }}>
-      <defs>
-        <linearGradient id="polyLine" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#6366f1" />
-          <stop offset="100%" stopColor="#22d3ee" />
-        </linearGradient>
-        <linearGradient id="polyFill" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor="rgba(99,102,241,0.25)" />
-          <stop offset="100%" stopColor="rgba(99,102,241,0)" />
-        </linearGradient>
-      </defs>
+    <div className="stats-container animate-fade-in">
+      <div className="stats-header">PERFORMANCE ANALYTICS TREND</div>
+      <div className="svg-scroll-container">
+        <div className="svg-wrapper" style={{ width: chartWidth }}>
+          <svg width={chartWidth} height={chartHeight + 100} viewBox={`0 0 ${chartWidth} ${chartHeight + 100}`}>
+            <defs>
+              <linearGradient id="polyGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#6D8196" stopOpacity="0.2" />
+                <stop offset="100%" stopColor="#6D8196" stopOpacity="0" />
+              </linearGradient>
+            </defs>
 
-      {/* Grid lines */}
-      {[0, 0.25, 0.5, 0.75, 1].map((f, i) => (
-        <line key={i} x1={PL} x2={W - PR} y1={PT + cH * (1 - f)} y2={PT + cH * (1 - f)}
-          stroke="rgba(99,102,241,0.08)" strokeWidth="1" />
-      ))}
+            {/* Y-Axis Grid Lines */}
+            {[0, 25, 50, 75, 100].map(val => (
+              <g key={val}>
+                <line x1={padding} y1={chartHeight - (val / maxScore) * chartHeight} x2={chartWidth - padding} y2={chartHeight - (val / maxScore) * chartHeight} stroke="rgba(109,129,150,0.12)" strokeWidth="1" strokeDasharray="4 4" />
+                <text x={padding - 40} y={chartHeight - (val / maxScore) * chartHeight + 4} fill="rgba(109,129,150,0.5)" fontSize="10" fontWeight="700">{val}%</text>
+              </g>
+            ))}
 
-      {/* Fill */}
-      <path d={fillPath} fill="url(#polyFill)" />
+            {/* Shaded Area */}
+            <polyline points={areaPoints} fill="url(#polyGradient)" />
 
-      {/* Polygon line */}
-      <path d={linePath} fill="none" stroke="url(#polyLine)" strokeWidth="2.5"
-        strokeLinecap="round" strokeLinejoin="round" />
+            {/* Polygon Line — no expensive filter */}
+            <polyline points={points} fill="none" stroke="#6D8196" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
 
-      {/* Data points */}
-      {pts.map((p, i) => (
-        <circle key={i} cx={p.x} cy={p.y} r={p.count > 0 ? 5 : 3}
-          fill={p.count > 0 ? '#6366f1' : 'rgba(99,102,241,0.25)'}
-          stroke="var(--surface-color)" strokeWidth={p.count > 0 ? 2 : 1} />
-      ))}
+            {/* Data Points and Labels */}
+            {sessions.map((s, i) => {
+              const x = padding + i * pointGap;
+              const y = chartHeight - (s.overall_score / maxScore) * chartHeight;
+              const color = s.overall_score >= 75 ? '#ade600ff' : s.overall_score >= 50 ? '#ff9900' : '#ff4d4d';
 
-      {/* Count labels above points */}
-      {pts.map((p, i) => p.count > 0 && (
-        <text key={i} x={p.x} y={p.y - 9} textAnchor="middle" fontSize="10"
-          fill="var(--accent-secondary)" fontWeight="700">
-          {p.count}
-        </text>
-      ))}
-
-      {/* Y-axis labels */}
-      {yLabels.map((v, i) => (
-        <text key={i} x={PL - 6} y={PT + cH - (v / maxCount) * cH + 4}
-          textAnchor="end" fontSize="10" fill="rgba(136,146,176,0.8)">
-          {v}
-        </text>
-      ))}
-
-      {/* X-axis labels — alternating vertical offsets to prevent collision */}
-      {pts.map((p, i) => (
-        <g key={i}>
-          <line x1={p.x} x2={p.x} y1={PT + cH} y2={PT + cH + 5}
-            stroke="rgba(99,102,241,0.3)" strokeWidth="1" />
-          <text x={p.x} y={PT + cH + (i % 2 === 0 ? 18 : 32)}
-            textAnchor="middle" fontSize="9" fill="rgba(136,146,176,0.75)">
-            {p.label}
-          </text>
-        </g>
-      ))}
-
-      {/* Axis lines */}
-      <line x1={PL} x2={PL} y1={PT} y2={PT + cH} stroke="rgba(99,102,241,0.25)" strokeWidth="1" />
-      <line x1={PL} x2={W - PR} y1={PT + cH} y2={PT + cH} stroke="rgba(99,102,241,0.25)" strokeWidth="1" />
-    </svg>
+              return (
+                <g key={s.id || i} className="chart-node-group">
+                  <circle cx={x} cy={y} r="5" fill="var(--surface-color)" stroke={color} strokeWidth="2" className="data-point" />
+                  <text
+                    x={x}
+                    y={chartHeight + (i % 2 === 0 ? 40 : 65)}
+                    fill="rgba(109,129,150,0.7)"
+                    fontSize="9"
+                    fontWeight="700"
+                    textAnchor="middle"
+                  >
+                    {s.candidate_name.split(' ')[0]}
+                  </text>
+                  <text x={x} y={y - 12} fill={color} fontSize="10" fontWeight="700" textAnchor="middle" className="score-label">
+                    {s.overall_score}%
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+      </div>
+    </div>
   );
 };
 
-/* ─── Interview Dashboard ─────────────────────────────────────────── */
-const REC_CONFIG = {
-  HIRE:    { color: '#10b981', label: 'Hire',      icon: '✅' },
-  MAYBE:   { color: '#f59e0b', label: 'Maybe',     icon: '🤔' },
-  NO_HIRE: { color: '#f87171', label: 'No Hire',   icon: '❌' },
-};
-
-const scoreColor = s => s >= 75 ? '#10b981' : s >= 50 ? '#f59e0b' : '#f87171';
-
-const InterviewDashboard = ({ workspace, session }) => {
-  const [interviews, setInterviews] = useState([]);
+const CandidatePerformance = ({ job, onBack }) => {
+  const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState(null);
 
   useEffect(() => {
-    if (!workspace?.id) return;
-    fetchInterviews();
-  }, [workspace?.id]);
+    const API_BASE = import.meta.env.VITE_API_URL || '';
+    const fetchSessions = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/interviews/session/${job.id}`);
+        const data = await res.json();
+        if (data.sessions) {
+          const sorted = data.sessions.sort((a, b) => (b.overall_score || 0) - (a.overall_score || 0));
+          setSessions(sorted);
+        }
+      } catch (e) {
+        console.error("Failed to fetch sessions", e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchSessions();
+  }, [job.id]);
 
-  const fetchInterviews = async () => {
-    setLoading(true);
+  return (
+    <div className="performance-view animate-fade-in">
+      <div className="perf-header">
+        <button className="back-btn" onClick={onBack}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+          BACK
+        </button>
+        <div className="perf-title-wrap">
+          <h2 className="perf-title">{job.title.toUpperCase()}</h2>
+          <div className="perf-subtitle">SYSTEM ANALYSIS: {sessions.length} ENTRIES</div>
+        </div>
+      </div>
+
+      <div className="perf-content-grid">
+        <div className="perf-stats-panel glass-panel">
+          <StatisticsChart sessions={sessions} />
+        </div>
+
+        <div className="perf-list-panel">
+          <div className="list-header">CANDIDATE RANKING (DECREASING SCORE)</div>
+          <div className="campaign-sessions-list">
+            {loading ? <p>Loading Intelligence...</p> :
+              sessions.length === 0 ? <p>No candidates have completed this interview yet.</p> :
+                sessions.map(session => (
+                  <SessionListItem key={session.id} session={session} />
+                ))
+            }
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SessionListItem = ({ session }) => {
+  const getCategory = (score) => {
+    if (score >= 75) return { label: 'PASSED', color: '#00e676' };
+    if (score >= 50) return { label: 'REVIEW', color: '#ff9900' };
+    return { label: 'REJECTED', color: '#ff4d4d' };
+  };
+  const cat = getCategory(session.overall_score || 0);
+
+  return (
+    <div className="horizontal-session-card animate-slide-up">
+      <div className="card-left">
+        <div className="session-avatar-circle" style={{ background: `linear-gradient(135deg, ${cat.color}, #0a1f13)` }}>
+          {session.candidate_name?.charAt(0) || "C"}
+        </div>
+      </div>
+      <div className="card-mid">
+        <div className="session-id-pill">#{String(session.id).padStart(3, '0')}</div>
+        <h3 className="candidate-name-text">{session.candidate_name}</h3>
+        <div className="candidate-meta-text">Session Date: {new Date(session.created_at).toLocaleDateString()}</div>
+        <div className="candidate-status-text" style={{ color: cat.color }}>{cat.label}</div>
+      </div>
+      <div className="card-right">
+        <div className="score-ring-container">
+          <svg viewBox="0 0 36 36" className="score-ring-svg">
+            <path fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="3" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+            <path fill="none" stroke={cat.color} strokeWidth="3" strokeLinecap="round" strokeDasharray={`${session.overall_score}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+          </svg>
+          <div className="score-ring-text" style={{ color: cat.color }}>{session.overall_score || 0}</div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const InterviewDashboard = ({ interviews, onRefreshInterviews, onStartTest }) => {
+  const [showModal, setShowModal] = useState(false);
+  const [newInterview, setNewInterview] = useState({ title: '', description: '', duration: 5, min_score: 75 });
+  const [isLoading, setIsLoading] = useState(false);
+  const [selectedJobId, setSelectedJobId] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [allSessions, setAllSessions] = useState([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [rankTab, setRankTab] = useState('ALL');
+
+  const filteredInterviews = interviews.filter(i =>
+    i.title.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  // Fetch sessions for all interviews for the System Ranked Matches section
+  useEffect(() => {
+    if (!interviews || interviews.length === 0) return;
+    setSessionsLoading(true);
+    const API_BASE = import.meta.env.VITE_API_URL || '';
+    Promise.all(
+      interviews.map(iv =>
+        fetch(`${API_BASE}/api/interviews/session/${iv.id}`)
+          .then(r => r.json())
+          .then(d => (d.sessions || []).map(s => ({ ...s, jobTitle: iv.title })))
+          .catch(() => [])
+      )
+    ).then(results => {
+      const merged = results.flat().sort((a, b) => (b.overall_score || 0) - (a.overall_score || 0));
+      setAllSessions(merged);
+    }).finally(() => setSessionsLoading(false));
+  }, [interviews]);
+
+  const getSessionCat = (score) => {
+    if (score >= 75) return { label: 'PASSED', color: '#0E836D' };
+    if (score >= 50) return { label: 'REVIEW', color: '#b07d30' };
+    return { label: 'REJECTED', color: '#8b3a3a' };
+  };
+
+  const filteredSessions = allSessions.filter(s => {
+    if (rankTab === 'ALL') return true;
+    return getSessionCat(s.overall_score || 0).label === rankTab;
+  });
+
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/workspaces/${workspace.id}/interviews`, {
-        headers: { Authorization: `Bearer ${session?.access_token}` },
-      });
-      const data = await res.json();
-      setInterviews(data.interviews || []);
+      const data = await api.post('/api/interviews', newInterview);
+      if (data.id) {
+        setShowModal(false);
+        setNewInterview({ title: '', description: '', duration: 5, min_score: 75 });
+        onRefreshInterviews();
+      }
     } catch (e) {
-      console.error('Failed to load interviews', e);
+      console.error("Creation failed", e);
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
-  const completed    = interviews.filter(i => i.status === 'completed');
-  const avgScore     = completed.length ? Math.round(completed.reduce((s, i) => s + i.overall_score, 0) / completed.length) : 0;
-  const hireCount    = completed.filter(i => i.ai_feedback?.interview_recommendation === 'HIRE').length;
-  const maybeCount   = completed.filter(i => i.ai_feedback?.interview_recommendation === 'MAYBE').length;
-  const noHireCount  = completed.filter(i => i.ai_feedback?.interview_recommendation === 'NO_HIRE').length;
+  const handleDelete = async (id) => {
+    if (!window.confirm("Delete this interview campaign?")) return;
+    try {
+      await api.delete(`/api/interviews/${id}`);
+      onRefreshInterviews();
+    } catch (e) {
+      console.error("Delete failed", e);
+    }
+  };
 
-  if (loading) return (
-    <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
-      <div style={{ width: '40px', height: '40px', margin: '0 auto 1rem', border: '3px solid rgba(99,102,241,0.15)', borderTopColor: 'var(--accent-primary)', borderRadius: '50%', animation: 'spin 0.9s linear infinite' }} />
-      Loading interview analytics…
-    </div>
-  );
+  const FolderBlock = ({ interview, isNew = false }) => {
+    // Generate a soft color based on the title or index
+    const colors = [
+      { bg: 'rgba(238, 242, 255, 1)', accent: '#6366f1', text: '#4338ca' }, // Indigo
+      { bg: 'rgba(240, 253, 244, 1)', accent: '#22c55e', text: '#15803d' }, // Green
+      { bg: 'rgba(255, 251, 235, 1)', accent: '#f59e0b', text: '#b45309' }, // Amber
+      { bg: 'rgba(254, 242, 242, 1)', accent: '#ef4444', text: '#b91c1c' }, // Red
+      { bg: 'rgba(250, 245, 255, 1)', accent: '#a855f7', text: '#7e22ce' }, // Purple
+    ];
+    const color = isNew ? { bg: 'rgba(255, 255, 255, 0.05)', accent: '#10b981', text: '#10b981' } : colors[interview.id % colors.length];
+
+    if (isNew) {
+      return (
+        <div className="folder-card new-folder animate-scale-up" onClick={() => setShowModal(true)}>
+          <div className="folder-tab"></div>
+          <div className="folder-body">
+            <div className="create-plus">+</div>
+            <div className="folder-title">NEW CAMPAIGN</div>
+            <div className="folder-footer">Initialize Analysis</div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="folder-card animate-scale-up" style={{ backgroundColor: color.bg }}>
+        <div className="folder-tab" style={{ backgroundColor: color.bg }}></div>
+        <div className="folder-options" onClick={(e) => { e.stopPropagation(); handleDelete(interview.id); }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+        </div>
+        <div className="folder-body">
+          <h3 className="folder-title" style={{ color: '#1e293b' }}>{interview.title.toUpperCase()}</h3>
+          <div className="folder-footer">
+            <div className="folder-avatars">
+              <div className="avatar" style={{ backgroundColor: color.accent }}>{interview.title.charAt(0)}</div>
+              <div className="avatar" style={{ backgroundColor: '#94a3b8' }}>AI</div>
+            </div>
+            <div className="folder-meta" style={{ color: '#64748b' }}>
+              {interview.duration_minutes} MINS â€¢ AI VOICE
+            </div>
+          </div>
+          {/* Hover Actions — Ink Wash professional overlay */}
+          <div className="folder-hover-overlay">
+            <div className="hover-job-label">{interview.title}</div>
+            <div className="hover-meta">{interview.duration_minutes} min · AI Voice Interview</div>
+            <div className="hover-actions">
+              <button className="fh-btn fh-view" onClick={() => setSelectedJobId(interview.id)}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg>
+                View Performance
+              </button>
+              <button className="fh-btn fh-launch" onClick={() => onStartTest(interview.id)}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                Launch Interview
+              </button>
+              <button
+                className="fh-btn fh-copylink"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const link = `${window.location.origin}?apply=${interview.id}`;
+                  navigator.clipboard.writeText(link);
+                  e.currentTarget.textContent = '✓ Link Copied!';
+                  setTimeout(() => { e.currentTarget.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy Candidate Link'; }, 2000);
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+                Copy Candidate Link
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }} className="animate-fade-in">
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <h2 className="heading-2">Interview Analytics</h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '0.25rem' }}>
-            Phase 2 AI Assessment results for <strong>{workspace.title}</strong>
-          </p>
-        </div>
-        <button className="btn-secondary" onClick={fetchInterviews} style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}>
-          ↻ Refresh
-        </button>
-      </div>
+    <div className="interview-dashboard animate-fade-in">
+      {!selectedJobId ? (
+        <div className="dashboard-content-wrapper">
+          <div className="top-search-bar">
+            <div className="search-input-wrapper">
+              <svg className="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <input
+                type="text"
+                placeholder="Search job profiles..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+              <div className="search-shortcut">âŒ˜ F</div>
+            </div>
+          </div>
 
-      {/* Stats cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
-        {[
-          { label: 'Total Sent',   value: interviews.length,           color: 'var(--accent-primary)'   },
-          { label: 'Completed',    value: `${completed.length} (${interviews.length ? Math.round(completed.length/interviews.length*100) : 0}%)`, color: 'var(--accent-secondary)' },
-          { label: 'Avg Score',    value: completed.length ? avgScore : '—',  color: scoreColor(avgScore) },
-          { label: 'Recommended',  value: hireCount,                   color: '#10b981'                 },
-        ].map((stat, i) => (
-          <div key={i} style={cardStyle}>
-            <span style={{ fontSize: '1.6rem', fontWeight: 800, color: stat.color }}>{stat.value}</span>
-            <span style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>{stat.label}</span>
+          <div className="dashboard-header">
+            <div>
+              <h2 className="heading-2">Interview Campaigns</h2>
+              <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.9rem' }}>Manage your AI-driven interview pipelines.</p>
+            </div>
           </div>
-        ))}
-      </div>
 
-      {/* Frequency Polygon Chart */}
-      {completed.length > 0 && (
-        <div style={sectionBox}>
-          <div style={sectionHeader}>
-            <span style={sectionTitle}>Score Density</span>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Frequency polygon — score distribution across {completed.length} completions</span>
-          </div>
-          <div style={{ padding: '0.5rem' }}>
-            <FrequencyPolygonChart interviews={interviews} />
-          </div>
-          {/* Recommendation breakdown */}
-          <div style={{ display: 'flex', gap: '1.5rem', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)' }}>
-            {[
-              { label: 'Hire',    count: hireCount,   color: '#10b981' },
-              { label: 'Maybe',   count: maybeCount,  color: '#f59e0b' },
-              { label: 'No Hire', count: noHireCount, color: '#f87171' },
-            ].map((r, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: r.color }} />
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{r.label}: <strong style={{ color: r.color }}>{r.count}</strong></span>
-              </div>
+
+          <div className="campaign-blocks-grid">
+            <FolderBlock isNew={true} />
+            {filteredInterviews.map((interview) => (
+              <FolderBlock key={interview.id} interview={interview} />
             ))}
+          </div>
+
+          {/* System Ranked Matches */}
+          <div className="ranked-section">
+            <div className="ranked-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+                <h2 className="heading-2" style={{ margin: 0 }}>System Ranked Matches</h2>
+                <div className="tabs-container">
+                  {['ALL', 'PASSED', 'REVIEW', 'REJECTED'].map(tab => (
+                    <button
+                      key={tab}
+                      className={`tab-btn ${rankTab === tab ? 'active' : ''}`}
+                      onClick={() => setRankTab(tab)}
+                    >{tab}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {sessionsLoading ? (
+              <p style={{ color: 'var(--text-secondary)', padding: '2rem 0' }}>Loading candidates...</p>
+            ) : filteredSessions.length === 0 ? (
+              <div className="ranked-empty">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" opacity="0.3"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+                <p>No interview sessions recorded yet.</p>
+              </div>
+            ) : (
+              <div className="ranked-grid">
+                {filteredSessions.map((s, i) => {
+                  const cat = getSessionCat(s.overall_score || 0);
+                  return (
+                    <div className="ranked-card" key={s.id || i}>
+                      <div className="rc-top">
+                        <div className="rc-avatar" style={{ background: `linear-gradient(135deg, ${cat.color}33, ${cat.color}11)`, border: `1px solid ${cat.color}44` }}>
+                          {s.candidate_name?.charAt(0)?.toUpperCase() || 'C'}
+                        </div>
+                        <div className="rc-info">
+                          <div className="rc-name">{s.candidate_name}</div>
+                          <div className="rc-job">{s.jobTitle}</div>
+                          <div className="rc-status" style={{ color: cat.color }}>{cat.label}</div>
+                        </div>
+                        <div className="rc-ring-wrap">
+                          <svg viewBox="0 0 36 36" className="rc-ring-svg">
+                            <path fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="3" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                            <path fill="none" stroke={cat.color} strokeWidth="3" strokeLinecap="round"
+                              strokeDasharray={`${s.overall_score || 0}, 100`}
+                              d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                              style={{ filter: `drop-shadow(0 0 4px ${cat.color}80)` }} />
+                          </svg>
+                          <div className="rc-score" style={{ color: cat.color }}>{s.overall_score || 0}</div>
+                        </div>
+                      </div>
+                      <div className="rc-date">Session · {new Date(s.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <CandidatePerformance
+          job={interviews.find(i => i.id === selectedJobId)}
+          onBack={() => setSelectedJobId(null)}
+        />
+      )}
+
+      {showModal && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-panel animate-scale-up">
+            <button className="modal-close-btn" onClick={() => setShowModal(false)}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+            <h3>Create Interview Panel</h3>
+            <form onSubmit={handleCreate}>
+              <div className="form-group">
+                <label>Job Title</label>
+                <input
+                  type="text"
+                  value={newInterview.title}
+                  onChange={(e) => setNewInterview({ ...newInterview, title: e.target.value })}
+                  placeholder="e.g. Senior Backend Engineer"
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Job Description & Instructions</label>
+                <textarea
+                  value={newInterview.description}
+                  onChange={(e) => setNewInterview({ ...newInterview, description: e.target.value })}
+                  placeholder="Paste JD here. Drona AI will use this to ask relevant questions."
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Duration (Minutes)</label>
+                <input
+                  type="number"
+                  value={newInterview.duration}
+                  onChange={(e) => setNewInterview({ ...newInterview, duration: e.target.value })}
+                  min="1" max="15"
+                  placeholder="1 – 15 minutes"
+                />
+              </div>
+              <div className="form-group">
+                <label>Minimum Score Threshold (%)</label>
+                <input
+                  type="number"
+                  value={newInterview.min_score ?? 75}
+                  onChange={(e) => setNewInterview({ ...newInterview, min_score: Number(e.target.value) })}
+                  min="0" max="100"
+                  placeholder="e.g. 75"
+                />
+                <p style={{
+                  margin: '0.4rem 0 0',
+                  fontSize: '0.75rem',
+                  color: 'rgba(109,129,150,0.7)',
+                  lineHeight: 1.5
+                }}>
+                  Candidates scoring below this will be flagged as <em>Not Recommended</em>. Set 0 to disable filtering.
+                </p>
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
+                <button type="submit" className="btn-primary" disabled={isLoading}>
+                  {isLoading ? 'Creating...' : 'Create Panel'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
-      {/* Results list */}
-      <div style={sectionBox}>
-        <div style={sectionHeader}>
-          <span style={sectionTitle}>Interview Results</span>
-        </div>
-        {interviews.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
-            <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>📭</div>
-            No interviews sent yet. Click "Send AI Interview" on a shortlisted candidate to begin.
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem' }}>
-            {interviews.map(iv => {
-              const isOpen = expanded === iv.id;
-              const rec = REC_CONFIG[iv.ai_feedback?.interview_recommendation] || null;
-              return (
-                <div key={iv.id} style={{ background: 'rgba(99,102,241,0.04)', border: '1px solid var(--border-color)', borderRadius: '0.9rem', overflow: 'hidden', transition: 'border-color 0.2s' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.9rem 1.1rem', cursor: 'pointer' }} onClick={() => setExpanded(isOpen ? null : iv.id)}>
-                    {/* Avatar */}
-                    <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-tertiary))', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: '1rem', flexShrink: 0 }}>
-                      {iv.candidate_name?.charAt(0)?.toUpperCase() || '?'}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.92rem' }}>{iv.candidate_name || 'Candidate'}</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{iv.candidate_email || 'No email on file'}</div>
-                    </div>
-                    {/* Status badge */}
-                    {iv.status === 'completed' ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        {rec && <span style={{ background: `${rec.color}18`, color: rec.color, border: `1px solid ${rec.color}40`, borderRadius: '9999px', padding: '0.2rem 0.65rem', fontSize: '0.7rem', fontWeight: 700 }}>{rec.icon} {rec.label}</span>}
-                        <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: `conic-gradient(${scoreColor(iv.overall_score)} ${iv.overall_score * 3.6}deg, rgba(99,102,241,0.08) 0deg)`, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', flexShrink: 0 }}>
-                          <div style={{ position: 'absolute', inset: '5px', background: 'var(--surface-color)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <span style={{ fontWeight: 800, fontSize: '0.85rem', color: scoreColor(iv.overall_score) }}>{iv.overall_score}</span>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <span style={{ padding: '0.25rem 0.75rem', borderRadius: '9999px', fontSize: '0.72rem', fontWeight: 700, background: iv.status === 'in_progress' ? 'rgba(245,158,11,0.12)' : 'rgba(99,102,241,0.08)', color: iv.status === 'in_progress' ? '#f59e0b' : 'var(--text-secondary)', border: `1px solid ${iv.status === 'in_progress' ? 'rgba(245,158,11,0.3)' : 'var(--border-color)'}` }}>
-                        {iv.status === 'in_progress' ? '⏳ In Progress' : '📨 Pending'}
-                      </span>
-                    )}
-                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{isOpen ? '▲' : '▼'}</span>
-                  </div>
+      <style>{`
+        .interview-dashboard { margin-top: 2rem; width: 100%; color: var(--text-primary); }
+        .dashboard-content-wrapper { max-width: 1400px; margin: 0 auto; width: 100%; }
 
-                  {/* Expanded details */}
-                  {isOpen && iv.status === 'completed' && iv.ai_feedback && (
-                    <div style={{ borderTop: '1px solid var(--border-color)', padding: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.6, margin: 0 }}>{iv.ai_feedback.overall_feedback}</p>
-                      {iv.question_scores && (
-                        <div>
-                          <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>Question Scores</div>
-                          {iv.question_scores.map((qs, i) => (
-                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.4rem' }}>
-                              <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', minWidth: '28px' }}>Q{qs.question_id}</span>
-                              <div style={{ flex: 1, height: '5px', background: 'rgba(99,102,241,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
-                                <div style={{ height: '100%', width: `${qs.score}%`, background: `linear-gradient(90deg, ${scoreColor(qs.score)}, ${scoreColor(qs.score)}88)`, borderRadius: '3px' }} />
-                              </div>
-                              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: scoreColor(qs.score), minWidth: '28px', textAlign: 'right' }}>{qs.score}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                        {iv.ai_feedback.key_strengths?.length > 0 && (
-                          <div style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)', borderRadius: '0.6rem', padding: '0.75rem' }}>
-                            <div style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', color: '#10b981', marginBottom: '0.4rem' }}>Strengths</div>
-                            <ul style={{ margin: 0, paddingLeft: '1rem', color: 'var(--text-secondary)', fontSize: '0.78rem', lineHeight: 1.6 }}>
-                              {iv.ai_feedback.key_strengths.map((s, i) => <li key={i}>{s}</li>)}
-                            </ul>
-                          </div>
-                        )}
-                        {iv.ai_feedback.knowledge_gaps?.length > 0 && (
-                          <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)', borderRadius: '0.6rem', padding: '0.75rem' }}>
-                            <div style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', color: '#f59e0b', marginBottom: '0.4rem' }}>Knowledge Gaps</div>
-                            <ul style={{ margin: 0, paddingLeft: '1rem', color: 'var(--text-secondary)', fontSize: '0.78rem', lineHeight: 1.6 }}>
-                              {iv.ai_feedback.knowledge_gaps.map((g, i) => <li key={i}>{g}</li>)}
-                            </ul>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+        /* Search Bar */
+        .top-search-bar { margin-bottom: 3rem; display: flex; align-items: center; }
+        .search-input-wrapper {
+          position: relative; flex: 1; max-width: 420px;
+          background: var(--surface-color);
+          border: 1.5px solid var(--border-color);
+          border-radius: 14px; display: flex; align-items: center;
+          padding: 0.75rem 1rem; transition: all 0.3s;
+          box-shadow: var(--shadow-sm);
+        }
+        .search-input-wrapper:focus-within {
+          border-color: var(--accent-primary);
+          box-shadow: 0 0 0 4px rgba(255, 0, 119, 0.1);
+        }
+        .search-icon { color: var(--text-secondary); margin-right: 0.75rem; }
+        .search-input-wrapper input {
+          background: none; border: none; color: var(--text-primary); outline: none; flex: 1; font-size: 0.95rem;
+        }
+        .search-input-wrapper input::placeholder { color: var(--text-secondary); }
+        .search-shortcut {
+          font-size: 0.75rem; color: var(--text-secondary); font-weight: 800;
+          background: var(--bg-color); padding: 2px 8px; border-radius: 6px;
+          border: 1px solid var(--border-color);
+        }
+
+        .dashboard-header { margin-bottom: 2.5rem; }
+        .dashboard-header p { color: var(--text-secondary); font-size: 0.9rem; }
+
+        /* Folder Grid */
+        .campaign-blocks-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 3.5rem 2.5rem;
+          width: 100%; padding: 2rem 0;
+        }
+        @media (max-width: 1200px) { .campaign-blocks-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 768px)  { .campaign-blocks-grid { grid-template-columns: 1fr; } }
+
+        /* Folder Card */
+        .folder-card {
+          width: 100%; max-width: 450px; height: 260px; position: relative;
+          border-radius: 24px; border-top-left-radius: 0;
+          margin: 0 auto; cursor: pointer;
+          transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+          display: flex; flex-direction: column;
+          box-shadow: var(--shadow-md);
+        }
+        .folder-tab {
+          position: absolute; top: -16px; left: 0; width: 120px; height: 16px;
+          border-top-left-radius: 16px; border-top-right-radius: 16px;
+        }
+        .folder-tab::after {
+          content: ''; position: absolute; top: 0; right: -24px;
+          width: 48px; height: 16px;
+          background: inherit; clip-path: polygon(0 0, 0% 100%, 100% 100%);
+        }
+        .folder-card:hover { transform: translateY(-12px); box-shadow: var(--shadow-lg); }
+
+        .folder-body {
+          padding: 2.5rem; flex: 1; display: flex; flex-direction: column; gap: 1rem;
+          position: relative; overflow: hidden; border-radius: 24px;
+        }
+        .folder-title {
+          font-family: 'Courier New', monospace; font-size: 1.3rem; font-weight: 900;
+          letter-spacing: -0.02em; line-height: 1.2; color: var(--text-primary);
+        }
+        .folder-options {
+          position: absolute; top: 1.5rem; right: 1.5rem; z-index: 10;
+          color: var(--text-secondary); transition: color 0.3s;
+        }
+        .folder-options:hover { color: #ef4444; }
+
+        .folder-footer { margin-top: auto; display: flex; justify-content: space-between; align-items: center; }
+        .folder-avatars { display: flex; align-items: center; }
+        .avatar {
+          width: 32px; height: 32px; border-radius: 50%;
+          border: 2px solid var(--surface-color); margin-left: -8px;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 0.7rem; font-weight: 950; color: white;
+        }
+        .avatar:first-child { margin-left: 0; }
+        .folder-meta { font-size: 0.8rem; font-weight: 700; color: var(--text-secondary); }
+
+        /* New Campaign Folder */
+        .new-folder {
+          border: 2px dashed var(--border-color);
+          background: var(--surface-color);
+          color: var(--text-secondary);
+          box-shadow: none;
+        }
+        .new-folder .folder-title { color: var(--accent-primary); }
+        .new-folder .folder-tab { border: 2px dashed var(--border-color); border-bottom: none; background: var(--surface-color); }
+        .new-folder:hover { border-color: var(--accent-primary); color: var(--accent-primary); box-shadow: var(--shadow-md); }
+        .create-plus { font-size: 3rem; font-weight: 300; margin-bottom: 0.5rem; color: var(--accent-primary); }
+        .new-folder .folder-footer { color: var(--accent-tertiary); font-size: 0.85rem; font-weight: 600; }
+
+        /* Hover Overlay — Ink Wash Professional */
+        .folder-hover-overlay {
+          position: absolute; inset: 0;
+          background: linear-gradient(160deg, rgba(28,28,28,0.97) 0%, rgba(20,20,20,0.99) 100%);
+          backdrop-filter: blur(12px);
+          display: flex; flex-direction: column;
+          justify-content: center; align-items: flex-start;
+          gap: 0.6rem; padding: 1.75rem;
+          opacity: 0; transition: opacity 0.25s ease, transform 0.25s ease;
+          pointer-events: none; border-radius: 24px;
+          border: 1px solid rgba(203,203,203,0.08);
+        }
+        .folder-card:hover .folder-hover-overlay { opacity: 1; pointer-events: auto; }
+        .hover-job-label {
+          font-family: 'Space Grotesk', sans-serif;
+          font-size: 0.95rem; font-weight: 700; color: #FFFFE3;
+          letter-spacing: -0.01em; margin-bottom: 0.1rem;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%;
+        }
+        .hover-meta {
+          font-family: 'Space Mono', monospace;
+          font-size: 0.55rem; letter-spacing: 0.15em; color: rgba(109,129,150,0.6);
+          text-transform: uppercase; margin-bottom: 0.8rem;
+        }
+        .hover-actions { display: flex; flex-direction: column; gap: 0.5rem; width: 100%; }
+        .fh-btn {
+          width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+          padding: 0.6rem 1rem; border-radius: 8px; font-weight: 600;
+          font-size: 0.78rem; letter-spacing: 0.02em; cursor: pointer;
+          transition: all 0.2s ease; font-family: 'DM Sans', sans-serif;
+        }
+        .fh-view {
+          background: rgba(255,255,227,0.06); color: rgba(255,255,227,0.8);
+          border: 1px solid rgba(255,255,227,0.15);
+        }
+        .fh-view:hover { background: rgba(255,255,227,0.12); border-color: rgba(255,255,227,0.3); color: #FFFFE3; transform: translateY(-1px); }
+        .fh-launch {
+          background: rgba(109,129,150,0.15); color: #6D8196;
+          border: 1px solid rgba(109,129,150,0.3);
+        }
+        .fh-launch:hover { background: rgba(109,129,150,0.25); border-color: rgba(109,129,150,0.5); color: #a8bcc9; transform: translateY(-1px); }
+        .fh-copylink {
+          background: transparent; color: rgba(109,129,150,0.55);
+          border: 1px dashed rgba(109,129,150,0.22);
+          font-size: 0.72rem; padding: 0.4rem 0.75rem;
+          display: flex; align-items: center; justify-content: center; gap: 0.4rem;
+        }
+        .fh-copylink:hover { background: rgba(109,129,150,0.08); color: rgba(109,129,150,0.85); border-color: rgba(109,129,150,0.4); transform: none; }
+
+        /* Apply Link Banner */
+        .apply-link-banner {
+          display: flex; align-items: center; justify-content: space-between;
+          background: rgba(109,129,150,0.06); border: 1px solid rgba(109,129,150,0.18);
+          border-radius: 10px; padding: 0.7rem 1.1rem; margin-bottom: 1.5rem;
+          gap: 1rem; flex-wrap: wrap;
+        }
+        .apply-link-left { display: flex; align-items: center; gap: 0.75rem; flex: 1; min-width: 0; overflow: hidden; }
+        .apply-link-left svg { color: rgba(109,129,150,0.7); flex-shrink: 0; }
+        .apply-link-label {
+          font-family: 'Space Mono', monospace; font-size: 0.6rem; font-weight: 700;
+          letter-spacing: 0.15em; text-transform: uppercase; color: rgba(109,129,150,0.7);
+          white-space: nowrap; flex-shrink: 0;
+        }
+        .apply-link-url {
+          font-family: 'Space Mono', monospace; font-size: 0.72rem;
+          color: rgba(255,255,227,0.55); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .apply-copy-btn {
+          display: flex; align-items: center; gap: 0.4rem;
+          background: rgba(255,255,227,0.08); border: 1px solid rgba(255,255,227,0.15);
+          color: #FFFFE3; border-radius: 6px; padding: 0.4rem 0.85rem;
+          font-size: 0.75rem; font-weight: 600; cursor: pointer; white-space: nowrap;
+          transition: all 0.2s ease; font-family: 'DM Sans', sans-serif;
+        }
+        .apply-copy-btn:hover { background: rgba(255,255,227,0.14); border-color: rgba(255,255,227,0.3); }
+
+        /* Tabs (System Ranked Matches) */
+        .tabs-container { display: flex; align-items: center; gap: 0.35rem; }
+        .tab-btn {
+          padding: 0.3rem 0.85rem; border-radius: 999px;
+          font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em;
+          cursor: pointer; transition: all 0.2s ease;
+          font-family: 'DM Sans', sans-serif;
+          background: rgba(109,129,150,0.08);
+          border: 1px solid rgba(109,129,150,0.2);
+          color: rgba(109,129,150,0.7);
+        }
+        .tab-btn:hover { background: rgba(109,129,150,0.16); color: rgba(255,255,227,0.75); border-color: rgba(109,129,150,0.35); }
+        .tab-btn.active {
+          background: #FFFFE3; color: #1c1c1c;
+          border-color: #FFFFE3; font-weight: 800;
+        }
+
+        /* System Ranked Matches */
+        .ranked-section { margin-top: 4rem; }
+        .ranked-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem; flex-wrap: wrap; gap: 1rem; }
+        .ranked-empty { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; padding: 3rem; color: var(--text-secondary); }
+        .ranked-grid {
+          display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+          gap: 1rem;
+        }
+        .ranked-card {
+          background: var(--surface-color); border: 1.5px solid var(--border-color);
+          border-radius: 16px; padding: 1.25rem 1.5rem;
+          transition: all 0.25s ease; display: flex; flex-direction: column; gap: 0.75rem;
+        }
+        .ranked-card:hover { border-color: rgba(109,129,150,0.4); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+        .rc-top { display: flex; align-items: center; gap: 1rem; }
+        .rc-avatar {
+          width: 42px; height: 42px; border-radius: 10px; flex-shrink: 0;
+          display: flex; align-items: center; justify-content: center;
+          font-family: 'Space Grotesk', sans-serif; font-size: 1.1rem; font-weight: 700; color: white;
+        }
+        .rc-info { flex: 1; min-width: 0; }
+        .rc-name { font-family: 'Space Grotesk', sans-serif; font-size: 0.95rem; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .rc-job { font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .rc-status { font-size: 0.65rem; font-weight: 800; letter-spacing: 0.08em; margin-top: 0.25rem; }
+        .rc-ring-wrap { position: relative; width: 52px; height: 52px; flex-shrink: 0; }
+        .rc-ring-svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+        .rc-score {
+          position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+          font-family: 'Space Grotesk', sans-serif; font-size: 0.85rem; font-weight: 700;
+        }
+        .rc-date { font-family: 'Space Mono', monospace; font-size: 0.6rem; color: rgba(109,129,150,0.5); letter-spacing: 0.05em; }
+
+        /* Performance View */
+        .performance-view { padding-top: 1rem; }
+        .perf-header {
+          display: flex; justify-content: space-between; align-items: flex-end;
+          margin-bottom: 3rem; border-bottom: 1px solid var(--border-color);
+          padding-bottom: 2rem;
+        }
+        .back-btn {
+          background: var(--surface-color);
+          border: 1.5px solid var(--border-color);
+          color: var(--text-primary);
+          padding: 0.8rem 1.5rem; border-radius: 1rem; font-weight: 800;
+          font-size: 0.75rem; letter-spacing: 0.1em;
+          display: flex; align-items: center; gap: 0.75rem;
+          cursor: pointer; transition: all 0.3s;
+          box-shadow: var(--shadow-sm);
+        }
+        .back-btn:hover {
+          border-color: var(--accent-primary); color: var(--accent-primary);
+          transform: translateX(-5px); box-shadow: var(--shadow-md);
+        }
+        .perf-title { font-size: 2.2rem; font-weight: 950; color: var(--text-primary); margin: 0; }
+        .perf-subtitle { font-size: 0.8rem; font-weight: 800; color: var(--accent-primary); letter-spacing: 0.1em; margin-top: 0.5rem; text-align: right; }
+
+        .perf-content-grid { display: grid; grid-template-columns: 1fr 420px; gap: 3rem; align-items: start; }
+        .perf-stats-panel {
+          padding: 2.5rem; border-radius: 2.5rem;
+          background: var(--surface-color);
+          border: 1.5px solid var(--border-color);
+          box-shadow: var(--shadow-md); overflow: hidden;
+        }
+        .stats-header {
+          font-size: 0.7rem; font-weight: 900; color: var(--accent-primary);
+          letter-spacing: 0.4em; margin-bottom: 3rem;
+        }
+
+        .svg-scroll-container {
+          width: 100%; overflow-x: auto; padding-bottom: 2rem;
+          scrollbar-width: thin; scrollbar-color: rgba(255,0,119,0.3) transparent;
+        }
+        .svg-scroll-container::-webkit-scrollbar { height: 4px; }
+        .svg-scroll-container::-webkit-scrollbar-thumb { background: rgba(255,0,119,0.3); border-radius: 10px; }
+        .svg-wrapper { min-width: 100%; }
+
+        .data-point { transition: all 0.3s; cursor: pointer; }
+        .chart-node-group:hover .data-point { r: 8; stroke-width: 4; }
+        .chart-node-group:hover .score-label { font-size: 14px; opacity: 1; }
+        .score-label { transition: all 0.3s; opacity: 0.85; }
+
+        .perf-list-panel {}
+        .list-header {
+          font-size: 0.7rem; font-weight: 900; color: var(--text-secondary);
+          letter-spacing: 0.25em; margin-bottom: 2rem;
+        }
+        .campaign-sessions-list { display: flex; flex-direction: column; gap: 1rem; }
+        .horizontal-session-card {
+          display: flex; align-items: center; gap: 1.5rem;
+          background: var(--surface-color);
+          border: 1.5px solid var(--border-color);
+          padding: 1.25rem 1.75rem; border-radius: 1.5rem;
+          transition: all 0.3s; box-shadow: var(--shadow-sm);
+        }
+        .horizontal-session-card:hover {
+          border-color: var(--accent-primary);
+          box-shadow: var(--shadow-md); transform: translateX(6px);
+        }
+        .session-id-pill {
+          font-size: 0.65rem; font-weight: 900; letter-spacing: 0.08em;
+          color: var(--text-secondary); margin-bottom: 0.25rem;
+        }
+        .candidate-name-text { font-size: 1rem; font-weight: 800; color: var(--text-primary); }
+        .candidate-meta-text { font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.2rem; }
+        .candidate-status-text { font-size: 0.7rem; font-weight: 900; letter-spacing: 0.08em; margin-top: 0.3rem; }
+        .session-avatar-circle {
+          width: 44px; height: 44px; border-radius: 50%;
+          display: flex; align-items: center; justify-content: center;
+          color: white; font-size: 1.2rem; font-weight: 900; flex-shrink: 0;
+        }
+        .score-ring-container { position: relative; width: 52px; height: 52px; flex-shrink: 0; }
+        .score-ring-svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+        .score-ring-text {
+          position: absolute; inset: 0; display: flex; align-items: center;
+          justify-content: center; font-size: 0.85rem; font-weight: 900;
+        }
+        .card-left { flex-shrink: 0; }
+        .card-mid { flex: 1; }
+        .card-right { flex-shrink: 0; }
+
+        /* Modal */
+        .modal-overlay {
+          position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+          background: rgba(10,0,16,0.75); backdrop-filter: blur(20px);
+          display: flex; align-items: center; justify-content: center;
+          z-index: 1000; animation: modalFadeIn 0.3s ease-out;
+        }
+        @keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .modal-content {
+          width: 100%; max-width: 480px; padding: 2rem 2rem 1.5rem; border-radius: 1.5rem;
+          background: var(--surface-color);
+          border: 1.5px solid var(--border-color);
+          box-shadow: var(--shadow-lg); position: relative;
+          max-height: 90vh; overflow-y: auto;
+        }
+        .modal-close-btn {
+          position: absolute; top: 1.5rem; right: 1.5rem;
+          background: none; border: none; color: var(--text-secondary);
+          cursor: pointer; transition: all 0.3s; padding: 0.5rem;
+          display: flex; align-items: center; justify-content: center;
+        }
+        .modal-close-btn:hover { color: #ef4444; transform: rotate(90deg); }
+        .modal-content h3 {
+          font-size: 1.3rem; font-weight: 800; color: var(--text-primary);
+          margin-bottom: 1.25rem; letter-spacing: -0.02em;
+        }
+        .form-group { margin-bottom: 1rem; }
+        .form-group label {
+          display: block; font-size: 0.72rem; font-weight: 800;
+          color: var(--accent-primary); margin-bottom: 0.6rem;
+          letter-spacing: 0.1em; text-transform: uppercase;
+        }
+        .form-group input, .form-group textarea {
+          width: 100%; background: var(--bg-color);
+          border: 1.5px solid var(--border-color);
+          border-radius: 0.75rem; padding: 0.65rem 1rem;
+          color: var(--text-primary); font-size: 0.9rem;
+          transition: all 0.3s; font-family: inherit;
+        }
+        .form-group input::placeholder, .form-group textarea::placeholder { color: var(--text-secondary); }
+        .form-group input:focus, .form-group textarea:focus {
+          outline: none; border-color: var(--accent-primary);
+          box-shadow: 0 0 0 4px rgba(255,0,119,0.12);
+        }
+        .modal-actions { display: flex; gap: 1rem; margin-top: 1.25rem; }
+        .modal-actions button {
+          flex: 1; padding: 0.75rem; border-radius: 0.85rem; font-weight: 700;
+          font-size: 0.85rem; cursor: pointer; transition: all 0.3s; letter-spacing: 0.03em;
+        }
+        .btn-secondary {
+          background: var(--bg-color); color: var(--text-secondary);
+          border: 1.5px solid var(--border-color);
+        }
+        .btn-secondary:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
+        .btn-primary {
+          background: linear-gradient(135deg, var(--accent-primary), var(--accent-tertiary));
+          color: white; border: none;
+          box-shadow: 0 8px 20px rgba(255,0,119,0.25);
+        }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(255,0,119,0.35); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+      `}</style>
     </div>
   );
 };
 
-const cardStyle = { background: 'var(--glass-bg)', backdropFilter: 'var(--glass-blur)', border: '1px solid var(--border-color)', borderRadius: '0.9rem', padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.1rem' };
-const sectionBox = { background: 'rgba(99,102,241,0.03)', border: '1px solid var(--border-color)', borderRadius: '1rem', padding: '1.25rem' };
-const sectionHeader = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' };
-const sectionTitle = { fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-secondary)' };
-
 export default InterviewDashboard;
+

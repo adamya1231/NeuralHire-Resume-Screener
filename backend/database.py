@@ -1,198 +1,488 @@
-import os
 import json
-from supabase import create_client, Client
-from dotenv import load_dotenv
+import os
 
-load_dotenv()
+# ---------------------------------------------------------------------------
+# Database Abstraction Layer
+# ---------------------------------------------------------------------------
+# Production (Render / any cloud):  Uses PostgreSQL via DATABASE_URL env var.
+# Local development:                Falls back to SQLite (recruitment.db).
+# ---------------------------------------------------------------------------
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+DATABASE_URL = os.getenv('DATABASE_URL')
 
-if not SUPABASE_URL or not SUPABASE_KEY:
-    print("WARNING: Supabase URL or Key is missing. Database operations will fail.")
+# Render provides DATABASE_URL starting with "postgres://..." but psycopg2
+# requires "postgresql://..." — fix it automatically.
+if DATABASE_URL and DATABASE_URL.startswith('postgres://'):
+    DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
 
-def get_supabase_client() -> Client:
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+USE_POSTGRES = bool(DATABASE_URL)
 
-# --- Recruiter Auth ---
-def get_user_from_token(token):
-    try:
-        supabase = get_supabase_client()
-        user = supabase.auth.get_user(token)
-        return user.user
-    except Exception as e:
-        print("Auth error:", e)
-        return None
+if USE_POSTGRES:
+    import psycopg2
+    import psycopg2.extras
+else:
+    import sqlite3
 
-# --- Workspaces ---
-def get_all_workspaces(recruiter_id=None):
-    supabase = get_supabase_client()
-    query = supabase.table("workspaces").select("*").order("created_at", desc=True)
-    if recruiter_id:
-        query = query.eq("recruiter_id", recruiter_id)
-    response = query.execute()
-    return response.data
+# On Vercel, the filesystem is read-only except for /tmp.
+# We use /tmp for serverless, and a local file for development.
+SQLITE_DB_FILE = '/tmp/recruitment.db' if os.getenv('VERCEL') else 'recruitment.db'
 
-def get_workspace_by_token(public_token):
-    supabase = get_supabase_client()
-    response = supabase.table("workspaces").select("*").eq("public_token", public_token).execute()
-    if len(response.data) > 0:
-        return response.data[0]
-    return None
 
-def create_workspace(title, description, min_score=75, recruiter_id=None):
-    supabase = get_supabase_client()
-    data = {
-        "title": title,
-        "description": description,
-        "min_score": min_score
-    }
-    if recruiter_id:
-        data["recruiter_id"] = recruiter_id
-        
-    response = supabase.table("workspaces").insert(data).execute()
-    if response.data and len(response.data) > 0:
-        return response.data[0]["id"], response.data[0]["public_token"]
-    return None, None
+def get_db_connection():
+    if USE_POSTGRES:
+        conn = psycopg2.connect(DATABASE_URL)
+        return conn
+    else:
+        conn = sqlite3.connect(SQLITE_DB_FILE)
+        conn.row_factory = sqlite3.Row
+        return conn
 
-def update_workspace(workspace_id, title, description, min_score=75):
-    supabase = get_supabase_client()
-    data = {
-        "title": title,
-        "description": description,
-        "min_score": min_score
-    }
-    supabase.table("workspaces").update(data).eq("id", workspace_id).execute()
 
-def delete_workspace(workspace_id):
-    supabase = get_supabase_client()
-    # Supabase cascade delete handles candidates if foreign key is set correctly
-    supabase.table("workspaces").delete().eq("id", workspace_id).execute()
+def _placeholder():
+    """Return the correct SQL placeholder for the active DB engine."""
+    return '%s' if USE_POSTGRES else '?'
 
-# --- Candidates ---
-def save_candidate(workspace_id, filename, llm_json, name=None, email=None, phone=None):
-    supabase = get_supabase_client()
-    
+
+def _serial_type():
+    """Return the correct auto-increment primary key syntax."""
+    return 'SERIAL PRIMARY KEY' if USE_POSTGRES else 'INTEGER PRIMARY KEY AUTOINCREMENT'
+
+
+def _timestamp_default():
+    """Return the correct timestamp default."""
+    if USE_POSTGRES:
+        return 'TIMESTAMP DEFAULT NOW()'
+    return 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
+
+
+def _execute(conn, query, params=None):
+    """Execute a query using the correct cursor type."""
+    if USE_POSTGRES:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    else:
+        cur = conn.cursor()
+    cur.execute(query, params or ())
+    return cur
+
+
+def _fetchall(conn, query, params=None):
+    """Execute + fetchall with proper cursor."""
+    cur = _execute(conn, query, params)
+    rows = cur.fetchall()
+    cur.close()
+    if USE_POSTGRES:
+        return rows  # already list of dicts (RealDictCursor)
+    else:
+        return [dict(r) for r in rows]
+
+
+def _fetchone(conn, query, params=None):
+    """Execute + fetchone with proper cursor."""
+    cur = _execute(conn, query, params)
+    row = cur.fetchone()
+    cur.close()
+    if USE_POSTGRES:
+        return row  # dict or None
+    else:
+        return dict(row) if row else None
+
+
+def _q(query):
+    """Convert a query with ? placeholders to %s if using PostgreSQL."""
+    if USE_POSTGRES:
+        return query.replace('?', '%s')
+    return query
+
+
+def init_db():
+    conn = get_db_connection()
+    serial = _serial_type()
+    ts = _timestamp_default()
+
+    cur = conn.cursor()
+
+    # Create Workspaces/Jobs table
+    cur.execute(f'''
+        CREATE TABLE IF NOT EXISTS workspaces (
+            id {serial},
+            recruiter_id TEXT NOT NULL DEFAULT 'default',
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            min_score INTEGER DEFAULT 75,
+            interview_id INTEGER,
+            created_at {ts}
+        )
+    ''')
+
+    # Create Candidates table
+    cur.execute(f'''
+        CREATE TABLE IF NOT EXISTS candidates (
+            id {serial},
+            workspace_id INTEGER NOT NULL,
+            recruiter_id TEXT NOT NULL DEFAULT 'default',
+            filename TEXT NOT NULL,
+            name TEXT NOT NULL,
+            email TEXT,
+            role TEXT,
+            experience_years TEXT,
+            overall_score INTEGER,
+            recommendation TEXT,
+            technical_fit TEXT,
+            experience_fit TEXT,
+            top_strengths TEXT,
+            skill_gaps TEXT,
+            interview_focus TEXT,
+            bias_check TEXT,
+            red_flags TEXT,
+            created_at {ts}
+        )
+    ''')
+
+    # Create Mock Interview Tables
+    cur.execute(f'''
+        CREATE TABLE IF NOT EXISTS mock_interviews (
+            id {serial},
+            recruiter_id TEXT NOT NULL DEFAULT 'default',
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            duration_minutes INTEGER DEFAULT 15,
+            created_at {ts}
+        )
+    ''')
+
+    # Interview Sessions
+    cur.execute(f'''
+        CREATE TABLE IF NOT EXISTS interview_sessions (
+            id {serial},
+            interview_id INTEGER NOT NULL,
+            candidate_name TEXT NOT NULL,
+            resume_text TEXT NOT NULL,
+            transcript TEXT,
+            overall_score INTEGER,
+            feedback TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at {ts}
+        )
+    ''')
+
+    conn.commit()
+
+    # ---------- Safe Migrations (SQLite only — PostgreSQL tables are created
+    # with all columns already) ----------
+    if not USE_POSTGRES:
+        for col, defn in [
+            ('min_score', 'INTEGER DEFAULT 75'),
+            ('recruiter_id', "TEXT NOT NULL DEFAULT 'default'"),
+            ('interview_id', "INTEGER"),
+        ]:
+            try:
+                cur.execute(f'ALTER TABLE workspaces ADD COLUMN {col} {defn}')
+            except sqlite3.OperationalError:
+                pass
+
+        for col, defn in [
+            ('red_flags', 'TEXT'),
+            ('recruiter_id', "TEXT NOT NULL DEFAULT 'default'"),
+            ('email', 'TEXT'),
+        ]:
+            try:
+                cur.execute(f'ALTER TABLE candidates ADD COLUMN {col} {defn}')
+            except sqlite3.OperationalError:
+                pass
+
+        try:
+            cur.execute("ALTER TABLE mock_interviews ADD COLUMN recruiter_id TEXT NOT NULL DEFAULT 'default'")
+        except sqlite3.OperationalError:
+            pass
+
+        conn.commit()
+
+    cur.close()
+    conn.close()
+
+
+# ── Workspace CRUD ─────────────────────────────────────────────────────────
+
+def get_all_workspaces(recruiter_id='default'):
+    conn = get_db_connection()
+    rows = _fetchall(conn, _q(
+        'SELECT * FROM workspaces WHERE recruiter_id = ? ORDER BY created_at DESC'
+    ), (recruiter_id,))
+    conn.close()
+    return rows
+
+
+def create_workspace(title, description, min_score=75, recruiter_id='default'):
+    conn = get_db_connection()
+
+    if USE_POSTGRES:
+        cur = _execute(conn, '''
+            INSERT INTO workspaces (title, description, min_score, recruiter_id)
+            VALUES (%s, %s, %s, %s) RETURNING id
+        ''', (title, description, min_score, recruiter_id))
+        workspace_id = cur.fetchone()['id']
+    else:
+        cur = _execute(conn, '''
+            INSERT INTO workspaces (title, description, min_score, recruiter_id)
+            VALUES (?, ?, ?, ?)
+        ''', (title, description, min_score, recruiter_id))
+        workspace_id = cur.lastrowid
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return workspace_id
+
+
+def update_workspace(workspace_id, title, description, min_score=75, recruiter_id='default'):
+    conn = get_db_connection()
+    _execute(conn, _q(
+        'UPDATE workspaces SET title=?, description=?, min_score=? WHERE id=? AND recruiter_id=?'
+    ), (title, description, min_score, workspace_id, recruiter_id))
+    conn.commit()
+    conn.close()
+
+
+def link_workspace_interview(workspace_id, interview_id):
+    conn = get_db_connection()
+    _execute(conn, _q('UPDATE workspaces SET interview_id=? WHERE id=?'), (interview_id, workspace_id))
+    conn.commit()
+    conn.close()
+
+
+def delete_workspace(workspace_id, recruiter_id='default'):
+    conn = get_db_connection()
+    _execute(conn, _q(
+        'DELETE FROM candidates WHERE workspace_id=? AND recruiter_id=?'
+    ), (workspace_id, recruiter_id))
+    _execute(conn, _q(
+        'DELETE FROM workspaces WHERE id=? AND recruiter_id=?'
+    ), (workspace_id, recruiter_id))
+    conn.commit()
+    conn.close()
+
+
+# ── Candidate CRUD ─────────────────────────────────────────────────────────
+
+def save_candidate(workspace_id, filename, llm_json, recruiter_id='default', email=None):
+    conn = get_db_connection()
+
     c_data = llm_json.get("candidate", {})
     match_data = llm_json.get("match_details", {})
-    
-    final_name = name if name else c_data.get("name", "Unknown")
-    
-    candidate_record = {
-        "workspace_id": workspace_id,
-        "filename": filename,
-        "name": final_name,
-        "email": email,
-        "phone": phone,
-        "education": c_data.get("education", ""),
-        "experience_years": str(c_data.get("experience_years", llm_json.get("experience_years", "Unknown"))),
-        "overall_score": llm_json.get("overall_score", 0),
-        "recommendation": llm_json.get("recommendation", llm_json.get("match_category", "UNKNOWN")),
-        "raw_json": llm_json
-    }
-    
-    response = supabase.table("candidates").insert(candidate_record).execute()
-    
-    if response.data and len(response.data) > 0:
-        llm_json["id"] = response.data[0]["id"]
+
+    if USE_POSTGRES:
+        cur = _execute(conn, '''
+            INSERT INTO candidates (
+                workspace_id, recruiter_id, filename, name, email, role, experience_years,
+                overall_score, recommendation, technical_fit, experience_fit,
+                top_strengths, skill_gaps, interview_focus, bias_check, red_flags
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        ''', (
+            workspace_id, recruiter_id, filename,
+            c_data.get("name", "Unknown"),
+            email or c_data.get("email", ""),
+            c_data.get("role", "Unknown"),
+            str(c_data.get("experience_years", "Unknown")),
+            llm_json.get("overall_score", 0),
+            llm_json.get("recommendation", "UNKNOWN"),
+            match_data.get("technical_fit", ""),
+            match_data.get("experience_fit", ""),
+            json.dumps(llm_json.get("top_strengths", [])),
+            json.dumps(llm_json.get("skill_gaps", [])),
+            json.dumps(llm_json.get("interview_focus", [])),
+            llm_json.get("bias_check", ""),
+            json.dumps(llm_json.get("red_flags", []))
+        ))
+        candidate_id = cur.fetchone()['id']
+    else:
+        cur = _execute(conn, '''
+            INSERT INTO candidates (
+                workspace_id, recruiter_id, filename, name, email, role, experience_years,
+                overall_score, recommendation, technical_fit, experience_fit,
+                top_strengths, skill_gaps, interview_focus, bias_check, red_flags
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            workspace_id, recruiter_id, filename,
+            c_data.get("name", "Unknown"),
+            email or c_data.get("email", ""),
+            c_data.get("role", "Unknown"),
+            str(c_data.get("experience_years", "Unknown")),
+            llm_json.get("overall_score", 0),
+            llm_json.get("recommendation", "UNKNOWN"),
+            match_data.get("technical_fit", ""),
+            match_data.get("experience_fit", ""),
+            json.dumps(llm_json.get("top_strengths", [])),
+            json.dumps(llm_json.get("skill_gaps", [])),
+            json.dumps(llm_json.get("interview_focus", [])),
+            llm_json.get("bias_check", ""),
+            json.dumps(llm_json.get("red_flags", []))
+        ))
+        candidate_id = cur.lastrowid
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    llm_json["id"] = candidate_id
     return llm_json
 
-def get_candidates_for_workspace(workspace_id):
-    supabase = get_supabase_client()
-    response = supabase.table("candidates").select("*").eq("workspace_id", workspace_id).order("overall_score", desc=True).execute()
-    
+
+def delete_candidates_for_workspace(workspace_id, recruiter_id='default'):
+    conn = get_db_connection()
+    _execute(conn, _q(
+        'DELETE FROM candidates WHERE workspace_id = ? AND recruiter_id = ?'
+    ), (workspace_id, recruiter_id))
+    conn.commit()
+    conn.close()
+
+
+def get_candidates_for_workspace(workspace_id, recruiter_id='default'):
+    conn = get_db_connection()
+    rows = _fetchall(conn, _q(
+        'SELECT * FROM candidates WHERE workspace_id = ? AND recruiter_id = ? ORDER BY overall_score DESC'
+    ), (workspace_id, recruiter_id))
+    conn.close()
+
     results = []
-    for r in response.data:
-        llm_json = r.get("raw_json", {})
+    for r in rows:
         results.append({
             "id": r["id"],
             "candidate": {
                 "name": r["name"],
-                "role": llm_json.get("candidate", {}).get("role", "Unknown"),
+                "email": r.get("email", ""),
+                "role": r["role"],
+                "experience_years": r["experience_years"]
             },
-            "experience_years": r["experience_years"],
             "overall_score": r["overall_score"],
             "recommendation": r["recommendation"],
-            "match_details": llm_json.get("match_details", {}),
-            "top_strengths": llm_json.get("top_strengths", []),
-            "skill_gaps": llm_json.get("skill_gaps", []),
-            "suggested_interview_questions": llm_json.get("suggested_interview_questions", llm_json.get("interview_focus", [])),
-            "bias_audit_log": llm_json.get("bias_audit_log", {}),
-            "red_flags": llm_json.get("red_flags", []),
+            "match_details": {
+                "technical_fit": r["technical_fit"],
+                "experience_fit": r["experience_fit"]
+            },
+            "top_strengths": json.loads(r["top_strengths"]) if r["top_strengths"] else [],
+            "skill_gaps": json.loads(r["skill_gaps"]) if r["skill_gaps"] else [],
+            "interview_focus": json.loads(r["interview_focus"]) if r["interview_focus"] else [],
+            "bias_check": r["bias_check"],
+            "red_flags": json.loads(r["red_flags"]) if r["red_flags"] else [],
             "filename": r["filename"]
         })
     return results
 
-def delete_candidate(candidate_id):
-    supabase = get_supabase_client()
-    supabase.table("candidates").delete().eq("id", candidate_id).execute()
 
-def update_candidate_recommendation(candidate_id, recommendation):
-    supabase = get_supabase_client()
-    supabase.table("candidates").update({"recommendation": recommendation}).eq("id", candidate_id).execute()
+def update_candidate_recommendation(candidate_id, recommendation, recruiter_id='default'):
+    conn = get_db_connection()
+    _execute(conn, _q('''
+        UPDATE candidates
+        SET recommendation = ?
+        WHERE id = ? AND recruiter_id = ?
+    '''), (recommendation, candidate_id, recruiter_id))
+    conn.commit()
+    conn.close()
 
 
-def clear_workspace_candidates(workspace_id):
-    supabase = get_supabase_client()
-    supabase.table("candidates").delete().eq("workspace_id", workspace_id).execute()
+# ── Mock Interview Helpers ─────────────────────────────────────────────────
 
-def get_workspace_by_id(workspace_id):
-    supabase = get_supabase_client()
-    response = supabase.table("workspaces").select("*").eq("id", workspace_id).execute()
-    if response.data and len(response.data) > 0:
-        return response.data[0]
-    return None
+def get_all_mock_interviews(recruiter_id='default'):
+    conn = get_db_connection()
+    rows = _fetchall(conn, _q(
+        'SELECT * FROM mock_interviews WHERE recruiter_id = ? ORDER BY created_at DESC'
+    ), (recruiter_id,))
+    conn.close()
+    return rows
 
-# --- Interviews ---
 
-def create_interview(workspace_id, candidate_id, candidate_email, candidate_name, questions):
-    supabase = get_supabase_client()
-    data = {
-        "workspace_id": workspace_id,
-        "candidate_id": candidate_id,
-        "candidate_email": candidate_email,
-        "candidate_name": candidate_name,
-        "questions": questions,
-        "status": "pending"
-    }
-    response = supabase.table("interviews").insert(data).execute()
-    if response.data and len(response.data) > 0:
-        return response.data[0]
-    return None
+def create_mock_interview(title, description, duration, recruiter_id='default'):
+    conn = get_db_connection()
 
-def get_interview_by_token(token):
-    supabase = get_supabase_client()
-    response = supabase.table("interviews").select("*").eq("interview_token", token).execute()
-    if response.data and len(response.data) > 0:
-        return response.data[0]
-    return None
+    if USE_POSTGRES:
+        cur = _execute(conn, '''
+            INSERT INTO mock_interviews (title, description, duration_minutes, recruiter_id)
+            VALUES (%s, %s, %s, %s) RETURNING id
+        ''', (title, description, duration, recruiter_id))
+        mi_id = cur.fetchone()['id']
+    else:
+        cur = _execute(conn, '''
+            INSERT INTO mock_interviews (title, description, duration_minutes, recruiter_id)
+            VALUES (?, ?, ?, ?)
+        ''', (title, description, duration, recruiter_id))
+        mi_id = cur.lastrowid
 
-def get_interview_by_candidate(candidate_id):
-    supabase = get_supabase_client()
-    response = supabase.table("interviews").select("*").eq("candidate_id", candidate_id).execute()
-    if response.data and len(response.data) > 0:
-        return response.data[0]
-    return None
+    conn.commit()
+    cur.close()
+    conn.close()
+    return mi_id
 
-def update_interview_status(token, status):
-    supabase = get_supabase_client()
-    supabase.table("interviews").update({"status": status}).eq("interview_token", token).execute()
 
-def submit_interview_answers(token, answers, question_scores, overall_score, ai_feedback):
-    supabase = get_supabase_client()
-    from datetime import datetime, timezone
-    data = {
-        "answers": answers,
-        "question_scores": question_scores,
-        "overall_score": overall_score,
-        "ai_feedback": ai_feedback,
-        "status": "completed",
-        "completed_at": datetime.now(timezone.utc).isoformat()
-    }
-    supabase.table("interviews").update(data).eq("interview_token", token).execute()
+def delete_mock_interview(id, recruiter_id='default'):
+    conn = get_db_connection()
+    _execute(conn, _q('DELETE FROM interview_sessions WHERE interview_id=?'), (id,))
+    _execute(conn, _q(
+        'DELETE FROM mock_interviews WHERE id=? AND recruiter_id=?'
+    ), (id, recruiter_id))
+    conn.commit()
+    conn.close()
 
-def get_interviews_for_workspace(workspace_id):
-    supabase = get_supabase_client()
-    response = supabase.table("interviews").select("*").eq("workspace_id", workspace_id).order("created_at", desc=True).execute()
-    return response.data
+
+def create_interview_session(interview_id, candidate_name, resume_text):
+    conn = get_db_connection()
+
+    if USE_POSTGRES:
+        cur = _execute(conn, '''
+            INSERT INTO interview_sessions (interview_id, candidate_name, resume_text)
+            VALUES (%s, %s, %s) RETURNING id
+        ''', (interview_id, candidate_name, resume_text))
+        session_id = cur.fetchone()['id']
+    else:
+        cur = _execute(conn, '''
+            INSERT INTO interview_sessions (interview_id, candidate_name, resume_text)
+            VALUES (?, ?, ?)
+        ''', (interview_id, candidate_name, resume_text))
+        session_id = cur.lastrowid
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return session_id
+
+
+def update_interview_session(session_id, transcript, score=None, feedback=None, status='completed'):
+    conn = get_db_connection()
+    _execute(conn, _q('''
+        UPDATE interview_sessions
+        SET transcript=?, overall_score=?, feedback=?, status=?
+        WHERE id=?
+    '''), (json.dumps(transcript), score, feedback, status, session_id))
+    conn.commit()
+    conn.close()
+
+
+def get_sessions_for_interview(interview_id):
+    conn = get_db_connection()
+    rows = _fetchall(conn, _q(
+        'SELECT * FROM interview_sessions WHERE interview_id = ? ORDER BY created_at DESC'
+    ), (interview_id,))
+    conn.close()
+
+    results = []
+    for r in rows:
+        results.append({
+            "id": r["id"],
+            "candidate_name": r["candidate_name"],
+            "overall_score": r["overall_score"],
+            "feedback": r["feedback"],
+            "status": r["status"],
+            "created_at": r["created_at"] if isinstance(r["created_at"], str) else str(r["created_at"])
+        })
+    return results
+
+
+# Initialize DB when module imports — wrapped in try/except so the app
+# can still start even if the database isn't reachable yet.
+try:
+    init_db()
+    print("[database] OK - Database initialised successfully" +
+          (" (PostgreSQL)" if USE_POSTGRES else " (SQLite)"))
+except Exception as e:
+    print(f"[database] WARNING - init_db() failed: {e} - will retry on first request")
 

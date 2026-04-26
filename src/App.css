@@ -182,3 +182,73 @@
     border-right-color: var(--border);
   }
 }
+
+.link-section {
+  width: 100%;
+}
+
+.link-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.65rem;
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.4);
+  letter-spacing: 0.1em;
+  margin-bottom: 0.75rem;
+}
+
+.link-copy-box {
+  display: flex;
+  align-items: center;
+  background: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 1rem;
+  padding: 0.5rem;
+  margin-bottom: 0.75rem;
+  transition: all 0.3s;
+}
+
+.link-copy-box:hover {
+  border-color: rgba(16, 185, 129, 0.2);
+  background: #1e293b;
+}
+
+.link-url-text {
+  flex: 1;
+  padding-left: 1rem;
+  color: #2dd4bf;
+  font-size: 0.85rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: monospace;
+}
+
+.link-copy-btn {
+  background: #6366f1;
+  color: white;
+  border: none;
+  padding: 0.5rem 1.25rem;
+  border-radius: 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.link-copy-btn:hover {
+  background: #4f46e5;
+  transform: translateY(-1px);
+}
+
+.link-copy-btn.copied {
+  background: #10b981;
+}
+
+.link-help-text {
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.3);
+  line-height: 1.4;
+}

@@ -1,814 +1,522 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { api } from '../api';
 
-const getScoreColor = (score) => {
-  if (score >= 80) return { color: '#10b981', glow: 'rgba(16,185,129,0.3)', label: 'Excellent' };
-  if (score >= 65) return { color: '#06b6d4', glow: 'rgba(6,182,212,0.3)', label: 'Good' };
-  if (score >= 50) return { color: '#f59e0b', glow: 'rgba(245,158,11,0.3)', label: 'Average' };
-  return { color: '#f87171', glow: 'rgba(248,113,113,0.3)', label: 'Low' };
-};
+const CandidateList = ({ candidatesData, activeWorkspace, onClearAll }) => {
+  const [expandedIds, setExpandedIds] = useState(new Set());
+  const [localCandidates, setLocalCandidates] = useState([]);
+  const [activeTab, setActiveTab] = useState('ALL');
+  const [isInviting, setIsInviting] = useState(false);
 
-const CandidateList = ({ candidatesData, onClearAll, onDelete, isWorkspaceActive, activeWorkspace, session, onCandidateUpdate }) => {
-  const [expandedId, setExpandedId]   = useState(null);
-  const [activeTab, setActiveTab]      = useState('shortlisted');
-  // Interview state
-  const [interviewModal, setInterviewModal] = useState(null);
-  const [sendingId, setSendingId]      = useState(null);
-  const [sentIds, setSentIds]          = useState({});
-  // Manual shortlist state
-  const [shortlistingId, setShortlistingId] = useState(null);
-  const [overrides, setOverrides]      = useState({}); // { candidateId: 'SHORTLIST' | 'REVIEW' }
+  useEffect(() => {
+    setLocalCandidates(candidatesData || []);
+  }, [candidatesData]);
 
-  if (!candidatesData || candidatesData.length === 0) {
+  if (!localCandidates || localCandidates.length === 0) {
     return (
-      <div className="empty-state animate-fade-in">
-        <div className="empty-icon">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="url(#emptyGrad)" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
-            <defs>
-              <linearGradient id="emptyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#6366f1"/>
-                <stop offset="100%" stopColor="#22d3ee"/>
-              </linearGradient>
-            </defs>
-            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-            <circle cx="9" cy="7" r="4"/>
-            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-          </svg>
-        </div>
-        <h3 style={{ color: 'var(--text-primary)', fontWeight: 600 }}>No candidates yet</h3>
-        <p>Upload resumes to see intelligent AI matching results here.</p>
+      <div className="empty-state animate-fade-in" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: '1rem', opacity: 0.5 }}>
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+          <circle cx="9" cy="7" r="4"></circle>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+        </svg>
+        <p>No candidates analyzed yet. Upload resumes to see intelligent matching results.</p>
       </div>
     );
   }
 
-  const toggleExpand = (id) => setExpandedId(prev => prev === id ? null : id);
+  const toggleExpand = (uniqueKey) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(uniqueKey)) { next.delete(uniqueKey); } else { next.add(uniqueKey); }
+      return next;
+    });
+  };
 
-  const shortlistCandidate = async (result) => {
-    setShortlistingId(result.id);
+  const handleUpdateStatus = async (id, newStatus) => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/candidates/${result.id}/recommendation`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ recommendation: 'SHORTLIST' }),
-      });
-      if (res.ok) {
-        setOverrides(prev => ({ ...prev, [result.id]: 'SHORTLIST' }));
-        if (onCandidateUpdate) onCandidateUpdate(result.id, 'SHORTLIST');
-      }
+      await api.patch(`/api/candidates/${id}/recommendation`, { recommendation: newStatus });
+      setLocalCandidates(prev =>
+        prev.map(c => c.id === id ? { ...c, recommendation: newStatus } : c)
+      );
     } catch (e) {
-      alert('Could not update candidate.');
-    } finally {
-      setShortlistingId(null);
+      console.error("Failed to update status:", e);
+      alert("Failed to update candidate status.");
     }
   };
 
+  const handleInvite = async () => {
+    const shortlisted = localCandidates.filter(c => c.recommendation === 'SHORTLIST');
+    if (shortlisted.length === 0) {
+      alert("No shortlisted candidates to invite.");
+      return;
+    }
 
-  const sendInterview = async (result) => {
-    if (!activeWorkspace) return;
-    setSendingId(result.id);
+    let link = '';
+    if (activeWorkspace && activeWorkspace.interview_id) {
+      link = `${window.location.origin}?apply=${activeWorkspace.interview_id}`;
+    } else {
+      link = prompt("Enter the mock interview link to send to candidates:", `${window.location.origin}?apply=123`);
+      if (!link) return;
+    }
+
+    // Use the actual email from the database (either captured from form or extracted from resume).
+    // If somehow missing, fallback to a placeholder.
+    const emails = shortlisted.map(c => {
+      if (c.candidate?.email) {
+        return c.candidate.email;
+      }
+      const namePart = (c.candidate?.name || "candidate").split(' ')[0].toLowerCase();
+      return `${namePart}@example.com`;
+    });
+
+    const confirmed = window.confirm(`Send invitations to ${emails.length} candidates?\n\nInterview Link: ${link}\n\nSending to: \n${emails.join('\n')}`);
+    if (!confirmed) return;
+
+    setIsInviting(true);
+    const API_BASE = import.meta.env.VITE_API_URL || '';
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/interviews/create`, {
+      const response = await fetch(`${API_BASE}/api/candidates/invite`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`,
-        },
-        body: JSON.stringify({
-          workspace_id:    activeWorkspace.id,
-          candidate_id:    result.id,
-          candidate_email: result.email || '',
-          candidate_name:  result.candidate?.name || 'Candidate',
-          job_description: activeWorkspace.description || '',
-          job_title:       activeWorkspace.title || 'the role',
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emails, interview_link: link })
       });
-      const data = await res.json();
-      if (data.success) {
-        setSentIds(prev => ({ ...prev, [result.id]: { token: data.interview_token, link: data.interview_link, emailSent: data.email_sent } }));
-        setInterviewModal({ link: data.interview_link, emailSent: data.email_sent, candidateEmail: data.candidate_email, candidateName: result.candidate?.name });
+      const data = await response.json();
+      if (data.sent > 0) {
+        alert(`Successfully sent ${data.sent} of ${data.total} invitations!`);
       } else {
-        alert('Failed to create interview: ' + (data.error || 'Unknown error'));
+        const errorDetails = data.errors && data.errors.length > 0 ? data.errors[0] : "";
+        alert(`Failed to send emails.\n\nServer Error:\n${errorDetails}`);
       }
     } catch (e) {
-      alert('Could not connect to backend.');
+      console.error(e);
+      alert("Failed to send invitations.");
     } finally {
-      setSendingId(null);
+      setIsInviting(false);
     }
   };
 
-
-
-  const buildGrid = (list, sectionLabel) => (
-    <div className="candidates-grid">
-      {list.map((result, index) => {
-        const isExpanded = expandedId === result.id;
-        const sc = getScoreColor(result.overall_score);
-        const expYears = result.experience_years?.toString().replace(/years?|yrs?/gi, '').trim() || '?';
-
-        return (
-          <div
-            className={`candidate-card ${isExpanded ? 'expanded' : ''}`}
-            key={result.id || index}
-            style={{ animationDelay: `${0.1 + index * 0.08}s` }}
-          >
-            {/* Top score bar */}
-            <div className="score-bar" style={{ background: `linear-gradient(90deg, ${sc.color}, transparent)`, boxShadow: `0 0 20px ${sc.glow}` }} />
-
-            {/* ── Card Header ── */}
-            <div className="card-header">
-              <div className="avatar-ring" style={{ '--ring-color': sc.color }}>
-                <div className="avatar">{result.candidate?.name?.charAt(0)?.toUpperCase() || 'U'}</div>
-              </div>
-              <div className="info">
-                <div className="name-row">
-                  <h3>{result.candidate?.name || 'Unknown Candidate'}</h3>
-                  <button
-                    onClick={() => onDelete(result.id)}
-                    title="Delete Candidate"
-                    className="delete-btn"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                    </svg>
-                  </button>
-                </div>
-                <p className="candidate-meta">
-                  {result.candidate?.role || 'Applicant'}
-                  {expYears !== '?' && <span> • {expYears} yrs exp</span>}
-                </p>
-                <div className="rec-badge" style={{ background: `${sc.color}18`, color: sc.color, border: `1px solid ${sc.color}35` }}>
-                  {result.recommendation || result.match_category || sectionLabel}
-                </div>
-              </div>
-              <div className="score-circle" style={{ '--sc': sc.color, '--progress': `${result.overall_score * 3.6}deg` }}>
-                <div className="score-inner">
-                  <span className="score-num">{result.overall_score}</span>
-                  <span className="score-sub">{sc.label}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* ── Body ── */}
-            <div className="card-body">
-              <div className="metrics-row">
-                <div className="metric-chip">
-                  <span className="metric-lbl">Tech Fit</span>
-                  <span className="metric-val">{result.match_details?.technical_fit || 'N/A'}</span>
-                </div>
-                <div className="metric-chip">
-                  <span className="metric-lbl">Exp Fit</span>
-                  <span className="metric-val">{result.match_details?.experience_fit || 'N/A'}</span>
-                </div>
-              </div>
-
-              {/* Expanded drawer */}
-              {isExpanded && (
-                <div className="expanded-drawer animate-fade-in">
-                  {result.top_strengths?.length > 0 && (
-                    <div className="section-block">
-                      <div className="section-title"><span className="section-dot success" />Top Strengths</div>
-                      <ul className="findings-list">
-                        {result.top_strengths.map((s, i) => <li key={i}>{s}</li>)}
-                      </ul>
-                    </div>
-                  )}
-
-                  {result.skill_gaps?.length > 0 && (
-                    <div className="section-block">
-                      <div className="section-title"><span className="section-dot warning" />Skill Gaps</div>
-                      <ul className="findings-list warning-list">
-                        {result.skill_gaps.map((g, i) => <li key={i}>{g}</li>)}
-                      </ul>
-                    </div>
-                  )}
-
-                  {result.suggested_interview_questions?.length > 0 && (
-                    <div className="section-block">
-                      <div className="section-title"><span className="section-dot accent" />Interview Questions</div>
-                      <ul className="findings-list accent-list">
-                        {result.suggested_interview_questions.map((q, i) => <li key={i}>{q}</li>)}
-                      </ul>
-                    </div>
-                  )}
-
-                  {result.red_flags?.length > 0 && (
-                    <div className="section-block">
-                      <div className="section-title danger-title">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
-                        Red Flags
-                      </div>
-                      <div className="red-flags-list">
-                        {result.red_flags.map((flag, i) => (
-                          <div className="red-flag-tag" key={i}>{flag}</div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Bias chip */}
-              <div className="bias-chip">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-                  <polyline points="22 4 12 14.01 9 11.01"/>
-                </svg>
-                Bias-Free Evaluation Applied
-              </div>
-            </div>
-
-            {/* ── Actions ── */}
-            <div className="card-actions">
-              <button
-                className={`btn-primary view-btn ${isExpanded ? 'active-report' : ''}`}
-                onClick={() => toggleExpand(result.id)}
-              >
-                {isExpanded ? (
-                  <>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="18 15 12 9 6 15"/></svg>
-                    Hide Report
-                  </>
-                ) : (
-                  <>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 12 15 18 9"/></svg>
-                    Full Report
-                  </>
-                )}
-              </button>
-              {/* Send AI Interview — for SHORTLIST or manually overridden */}
-              {((overrides[result.id] || result.recommendation) === 'SHORTLIST' || result.match_category === 'High Match') && activeWorkspace && (
-                sentIds[result.id] ? (
-                  <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>✓ Interview Sent</span>
-                ) : (
-                  <button
-                    className="btn-secondary"
-                    disabled={sendingId === result.id}
-                    onClick={() => sendInterview(result)}
-                    style={{ fontSize: '0.78rem', gap: '0.35rem', opacity: sendingId && sendingId !== result.id ? 0.5 : 1 }}
-                  >
-                    {sendingId === result.id ? '⏳ Generating…' : '🤖 Send AI Interview'}
-                  </button>
-                )
-              )}
-              {/* Shortlist button for review/reject candidates */}
-              {(overrides[result.id] || result.recommendation) !== 'SHORTLIST' && result.match_category !== 'High Match' && (
-                <button
-                  className='btn-secondary'
-                  disabled={shortlistingId === result.id}
-                  onClick={() => shortlistCandidate(result)}
-                  style={{ fontSize: '0.78rem', gap: '0.35rem', background: 'rgba(16,185,129,0.08)', borderColor: 'rgba(16,185,129,0.3)', color: '#10b981' }}
-                >
-                  {shortlistingId === result.id ? '⏳ Saving...' : '✓ Shortlist'}
-                </button>
-              )}
-            </div>
-
-          </div>
-        );
-      })}
-    </div>
+  const filteredCandidates = localCandidates.filter(c =>
+    activeTab === 'ALL' ? true : c.recommendation === activeTab
   );
-
-  const shortlisted = candidatesData.filter(c => (overrides[c.id] || c.recommendation) === 'SHORTLIST' || c.match_category === 'High Match');
-  const others = candidatesData.filter(c => (overrides[c.id] || c.recommendation) !== 'SHORTLIST' && c.match_category !== 'High Match');
-
-  // Demo Interview: fake profile for testing the AI interviewer
-  const DemoInterviewTab = () => (
-    <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }} className="animate-fade-in">
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-        <div style={{ fontSize: '2.5rem' }}>🤖</div>
-        <div>
-          <h3 style={{ color: 'var(--text-primary)', margin: 0 }}>AI Interview Demo</h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0 }}>Test the interview experience using any fictional profile — no real candidate needed.</p>
-        </div>
-      </div>
-      {activeWorkspace ? (
-        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-          {[
-            { name: 'Alex Chen', email: 'alex@demo.com', role: 'Senior Dev (Demo)' },
-            { name: 'Priya Sharma', email: 'priya@demo.com', role: 'Product Manager (Demo)' },
-            { name: 'Marcus K.', email: 'marcus@demo.com', role: 'Data Analyst (Demo)' },
-          ].map((profile, i) => (
-            <div key={i} style={{ flex: '1 1 200px', background: 'rgba(99,102,241,0.06)', border: '1px solid var(--border-color)', borderRadius: '0.9rem', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-tertiary))', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700 }}>{profile.name[0]}</div>
-                <div>
-                  <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.9rem' }}>{profile.name}</div>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>{profile.role}</div>
-                </div>
-              </div>
-              <DemoSendButton profile={profile} />
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '0.75rem' }}>
-          ⚠️ Select an active campaign first to generate interview questions.
-        </div>
-      )}
-    </div>
-  );
-
-  const DemoSendButton = ({ profile }) => {
-    const [loading, setLoading] = useState(false);
-    const [link, setLink] = useState(null);
-    const [copied, setCopied] = useState(false);
-    const send = async () => {
-      if (!activeWorkspace) return;
-      setLoading(true);
-      try {
-        const res = await fetch(`${import.meta.env.VITE_API_URL}/api/interviews/create`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
-          body: JSON.stringify({ workspace_id: activeWorkspace.id, candidate_id: -1, candidate_name: profile.name, candidate_email: profile.email, job_description: activeWorkspace.description || '', job_title: activeWorkspace.title || 'Role' }),
-        });
-        const data = await res.json();
-        if (data.interview_link) setLink(data.interview_link);
-      } catch { alert('Error creating demo interview'); }
-      finally { setLoading(false); }
-    };
-    const copy = () => { navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000); };
-    if (link) return (
-      <div style={{ display: 'flex', gap: '0.5rem' }}>
-        <input readOnly value={link} style={{ flex: 1, padding: '0.45rem 0.6rem', background: 'rgba(99,102,241,0.06)', border: '1px solid var(--border-color)', borderRadius: '0.5rem', color: 'var(--text-primary)', fontSize: '0.72rem', fontFamily: 'monospace' }} />
-        <button onClick={copy} style={{ background: copied ? 'rgba(16,185,129,0.15)' : 'var(--accent-primary)', color: copied ? '#10b981' : 'white', border: 'none', borderRadius: '0.5rem', padding: '0 0.75rem', cursor: 'pointer', fontWeight: 700, fontSize: '0.75rem' }}>{copied ? '✓' : 'Copy'}</button>
-        <a href={link} target="_blank" rel="noreferrer" style={{ background: 'rgba(34,211,238,0.1)', border: '1px solid rgba(34,211,238,0.3)', color: 'var(--accent-secondary)', borderRadius: '0.5rem', padding: '0.4rem 0.7rem', textDecoration: 'none', fontSize: '0.75rem', fontWeight: 700 }}>Open →</a>
-      </div>
-    );
-    return <button onClick={send} disabled={loading} className="btn-secondary" style={{ fontSize: '0.8rem', justifyContent: 'center' }}>{loading ? '⏳ Generating...' : '🚀 Generate Demo Interview'}</button>;
-  };
 
   return (
-    <div className="candidates-container animate-fade-in" style={{ animationDelay: '0.2s' }}>
-      {/* Interview Modal */}
-      {interviewModal && <InterviewModal modal={interviewModal} onClose={() => setInterviewModal(null)} />}
-
-      {/* Section header */}
+    <div className="candidates-container animate-fade-in" style={{ animationDelay: '0.3s' }}>
       <div className="candidates-header">
-        <div>
-          <h2 className="heading-2">AI Ranked Results</h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '0.25rem' }}>
-            {candidatesData.length} candidates analysed • {shortlisted.length} shortlisted
-          </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <h2 className="heading-2">System Ranked Matches</h2>
+          <div className="tabs-container" style={{ marginLeft: '2rem' }}>
+            {['ALL', 'SHORTLIST', 'REVIEW', 'REJECT'].map(tab => (
+              <button
+                key={tab}
+                className={`tab-btn ${activeTab === tab ? 'active' : ''}`}
+                onClick={() => setActiveTab(tab)}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="header-actions">
-          {isWorkspaceActive && candidatesData.length > 0 && (
-            <button className="btn-secondary clear-btn" onClick={onClearAll}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+
+        <div style={{ display: 'flex', gap: '1rem' }}>
+          {activeTab === 'SHORTLIST' && (
+            <button className="btn-primary" onClick={handleInvite} disabled={isInviting} style={{ padding: '0.4rem 1rem', fontSize: '0.85rem' }}>
+              {isInviting ? "Sending..." : "Send Mock Interview Links"}
+            </button>
+          )}
+
+          {localCandidates.length > 0 && onClearAll && (
+            <button
+              className="btn-secondary"
+              onClick={onClearAll}
+              style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', borderColor: 'rgba(239, 68, 68, 0.4)', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+              title="Delete all analyzed resumes for this campaign"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 6h18"></path>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
               Clear All
             </button>
           )}
-          <button className="btn-secondary">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Export
-          </button>
         </div>
       </div>
 
-      <div className="tabs-container">
-        <button className={`tab-btn ${activeTab === 'shortlisted' ? 'active-tab' : ''}`} onClick={() => setActiveTab('shortlisted')}>
-          Shortlisted ({shortlisted.length})
-        </button>
-        <button className={`tab-btn ${activeTab === 'review' ? 'active-tab' : ''}`} onClick={() => setActiveTab('review')}>
-          For Review ({others.length})
-        </button>
-        <button className={`tab-btn ${activeTab === 'demo' ? 'active-tab' : ''}`} onClick={() => setActiveTab('demo')} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-          🤖 AI Interview Demo
-        </button>
+      <div className="candidates-grid">
+        {filteredCandidates.map((result, index) => {
+          const uniqueKey = result.id !== undefined && result.id !== null ? result.id : `idx-${index}`;
+          const isExpanded = expandedIds.has(uniqueKey);
+          return (
+            <div className={`candidate-card ${isExpanded ? 'expanded' : ''}`} key={uniqueKey} style={{ animationDelay: `${0.1 + index * 0.05}s` }}>
+
+              {/* Header section with Score */}
+              <div className="card-header">
+                <div className="avatar">
+                  {result.candidate?.name?.charAt(0) || "U"}
+                </div>
+                <div className="info">
+                  <h3>{result.candidate?.name || "Unknown Candidate"}</h3>
+                  <p>{result.candidate?.role || "Applicant"} • {result.candidate?.experience_years || "?"} yrs exp</p>
+                  <div style={{ marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{
+                      fontSize: '0.75rem', fontWeight: 'bold',
+                      color: result.recommendation === "SHORTLIST" ? 'var(--success-color)' : result.recommendation === "REVIEW" ? 'var(--warning-color)' : 'var(--text-secondary)'
+                    }}>
+                      {result.recommendation}
+                    </span>
+                  </div>
+                </div>
+                <div className="score-container">
+                  <div className="circular-progress" style={{ '--progress': `${result.overall_score}%` }}>
+                    <span>{result.overall_score}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Basic AI Findings (Always Visible) */}
+              <div className="card-body">
+                <div className="metrics-row">
+                  <span className="metric"><small>Tech Fit:</small> {result.match_details?.technical_fit || "N/A"}</span>
+                  <span className="metric"><small>Exp Fit:</small> {result.match_details?.experience_fit || "N/A"}</span>
+                </div>
+
+                {/* Detailed Findings (Conditional) */}
+                {isExpanded && (
+                  <div className="expanded-details animate-fade-in">
+                    <div className="findings">
+                      <strong>Top Strengths:</strong>
+                      <ul>
+                        {(result.top_strengths || []).map((s, i) => <li key={i}>{s}</li>)}
+                      </ul>
+                    </div>
+
+                    {result.skill_gaps && result.skill_gaps.length > 0 && (
+                      <div className="findings gap-findings">
+                        <strong>Skill Gaps:</strong>
+                        <ul>
+                          {result.skill_gaps.map((g, i) => <li key={i}>{g}</li>)}
+                        </ul>
+                      </div>
+                    )}
+
+                    {result.red_flags && result.red_flags.length > 0 && (
+                      <div className="red-flags-section">
+                        <div className="red-flags-header">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                            <line x1="12" y1="9" x2="12" y2="13"></line>
+                            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                          </svg>
+                          <strong>RED FLAGS</strong>
+                        </div>
+                        <div className="red-flags-list">
+                          {result.red_flags.map((flag, i) => (
+                            <div className="red-flag-pill" key={i}>{flag}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="bias-indicator">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                    <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                  </svg>
+                  {result.bias_check || "Objective Evaluation Applied"}
+                </div>
+              </div>
+
+              <div className="card-actions">
+                <select
+                  className="status-dropdown"
+                  value={result.recommendation}
+                  onChange={(e) => handleUpdateStatus(result.id, e.target.value)}
+                >
+                  <option value="SHORTLIST">Shortlist</option>
+                  <option value="REVIEW">Review</option>
+                  <option value="REJECT">Reject</option>
+                </select>
+
+                <button
+                  className={`btn-primary view-btn ${isExpanded ? 'active' : ''}`}
+                  onClick={() => toggleExpand(uniqueKey)}
+                >
+                  {isExpanded ? 'Hide Full Report' : 'View Full Report'}
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
-
-      {activeTab === 'shortlisted' && shortlisted.length > 0 && (
-        <div className="result-section animate-fade-in">
-          {buildGrid(shortlisted, 'SHORTLIST')}
-        </div>
-      )}
-      
-      {activeTab === 'shortlisted' && shortlisted.length === 0 && (
-        <div className="empty-state">
-           <p>No candidates met the threshold to be shortlisted.</p>
-        </div>
-      )}
-
-      {activeTab === 'review' && others.length > 0 && (
-        <div className="result-section animate-fade-in">
-          {buildGrid(others, 'REVIEW')}
-        </div>
-      )}
-      
-      {activeTab === 'review' && others.length === 0 && (
-        <div className="empty-state">
-           <p>No candidates in the review queue.</p>
-        </div>
-      )}
-
-      {activeTab === 'demo' && <DemoInterviewTab />}
 
       <style>{`
-        .empty-state {
-          text-align: center;
-          padding: 4rem 2rem;
+        .candidates-container {
           display: flex;
           flex-direction: column;
-          align-items: center;
-          gap: 0.75rem;
-          color: var(--text-secondary);
+          gap: 1.5rem;
         }
-        .empty-icon {
-          width: 80px; height: 80px;
-          background: rgba(99,102,241,0.06);
-          border: 1px solid rgba(99,102,241,0.15);
-          border-radius: 1.5rem;
-          display: flex; align-items: center; justify-content: center;
-          margin-bottom: 0.5rem;
-        }
-
-        .candidates-container { display: flex; flex-direction: column; gap: 2.5rem; }
 
         .candidates-header {
           display: flex;
           justify-content: space-between;
-          align-items: flex-start;
-          padding-bottom: 1.25rem;
+          align-items: center;
           border-bottom: 1px solid var(--border-color);
+          padding-bottom: 1rem;
         }
-
-        .header-actions { display: flex; gap: 0.75rem; align-items: center; }
 
         .tabs-container {
           display: flex;
-          gap: 1rem;
-          margin-bottom: -1rem;
+          background: rgba(255, 255, 255, 0.03);
+          padding: 0.25rem;
+          border-radius: 0.75rem;
+          border: 1px solid var(--border-color);
         }
 
         .tab-btn {
           background: transparent;
           border: none;
           color: var(--text-secondary);
-          font-size: 0.95rem;
-          font-weight: 600;
-          padding: 0.5rem 0.25rem;
-          cursor: pointer;
-          position: relative;
-          transition: color 0.3s ease;
-        }
-
-        .tab-btn:hover { color: var(--text-primary); }
-
-        .tab-btn.active-tab { color: var(--accent-primary); }
-
-        .tab-btn.active-tab::after {
-          content: '';
-          position: absolute;
-          bottom: -4px; left: 0; right: 0;
-          height: 3px;
-          background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
-          border-radius: 9999px;
-        }
-
-        .clear-btn {
-          border-color: rgba(248,113,113,0.35);
-          color: #f87171;
-          display: flex;
-          align-items: center;
-          gap: 0.4rem;
-          padding: 0.5rem 1rem;
-          font-size: 0.85rem;
-        }
-        .clear-btn:hover {
-          background: rgba(248,113,113,0.08);
-          border-color: #f87171;
-          color: #f87171;
-        }
-
-        .result-section { display: flex; flex-direction: column; gap: 1rem; }
-
-        .section-label {
-          display: inline-flex;
-          align-items: center;
-          gap: 0.5rem;
-          font-size: 0.78rem;
+          padding: 0.4rem 1rem;
+          border-radius: 0.5rem;
+          font-size: 0.8rem;
           font-weight: 700;
-          letter-spacing: 0.06em;
-          text-transform: uppercase;
-          padding: 0.35rem 0.9rem;
-          border-radius: 9999px;
-          width: fit-content;
+          cursor: pointer;
+          transition: all 0.2s;
         }
 
-        .shortlist-label {
-          background: rgba(16,185,129,0.1);
-          color: #10b981;
-          border: 1px solid rgba(16,185,129,0.25);
+        .tab-btn:hover {
+          color: white;
         }
 
-        .review-label {
-          background: rgba(245,158,11,0.08);
-          color: #f59e0b;
-          border: 1px solid rgba(245,158,11,0.2);
+        .tab-btn.active {
+          background: var(--surface-color);
+          color: var(--accent-primary);
+          box-shadow: 0 2px 5px rgba(0,0,0,0.2);
         }
 
         .candidates-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
           gap: 1.5rem;
+          align-items: start;
         }
 
-        /* ── Card ── */
         .candidate-card {
-          background: var(--glass-bg);
-          backdrop-filter: var(--glass-blur);
-          border: 1px solid var(--glass-border);
+          background: var(--surface-color);
+          border: 1px solid var(--border-color);
           border-radius: 1.25rem;
-          padding: 0 0 1.25rem 0;
-          display: flex;
-          flex-direction: column;
-          gap: 1.1rem;
-          overflow: hidden;
+          padding: 1.5rem;
+          transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
           animation: slideUp 0.6s ease forwards;
           opacity: 0;
-          transition: all 0.35s cubic-bezier(0.4,0,0.2,1);
-          position: relative;
+          display: flex;
+          flex-direction: column;
+          gap: 1rem;
+          box-sizing: border-box;
+        }
+
+        .candidate-card.expanded {
+          border-color: var(--accent-primary);
+          box-shadow: 0 10px 30px rgba(99, 102, 241, 0.1);
         }
 
         .candidate-card:hover {
           transform: translateY(-4px);
-          box-shadow: var(--shadow-lg);
-          border-color: rgba(99,102,241,0.3);
+          box-shadow: var(--shadow-md);
+          border-color: var(--accent-primary);
         }
 
-        .candidate-card.expanded {
-          border-color: rgba(99,102,241,0.35);
-          box-shadow: 0 12px 40px rgba(99,102,241,0.12);
-        }
-
-        /* Score bar top strip */
-        .score-bar {
-          height: 3px;
-          width: 100%;
-          flex-shrink: 0;
-        }
-
-        /* Avatar with gradient ring */
         .card-header {
           display: flex;
           align-items: flex-start;
-          gap: 0.9rem;
-          padding: 1.25rem 1.25rem 0;
-        }
-
-        .avatar-ring {
-          position: relative;
-          width: 52px; height: 52px;
+          gap: 1rem;
           flex-shrink: 0;
-          padding: 2px;
-          background: conic-gradient(var(--ring-color), rgba(99,102,241,0.3), var(--ring-color));
-          border-radius: 50%;
-          animation: spin 8s linear infinite;
         }
 
         .avatar {
-          width: 100%; height: 100%;
+          width: 46px;
+          height: 46px;
           border-radius: 50%;
-          background: linear-gradient(135deg, var(--accent-primary), var(--accent-tertiary));
+          background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
           color: white;
-          display: flex; align-items: center; justify-content: center;
-          font-size: 1.15rem;
-          font-weight: 700;
-          position: relative;
-          z-index: 1;
-          background-clip: padding-box;
-          /* stop inner from spinning */
-          animation: spin 8s linear infinite reverse;
-        }
-
-        .info { flex: 1; min-width: 0; }
-
-        .name-row {
           display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 0.5rem;
+          align-items: center;
+          justify-content: center;
+          font-size: 1.2rem;
+          font-weight: 700;
+          flex-shrink: 0;
         }
 
-        .name-row h3 {
+        .info {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .info h3 {
           font-size: 1rem;
-          font-weight: 700;
           color: var(--text-primary);
-          line-height: 1.2;
+          margin-bottom: 0.2rem;
+          white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
-          white-space: nowrap;
         }
 
-        .candidate-meta {
+        .info p {
           font-size: 0.8rem;
           color: var(--text-secondary);
-          margin-top: 0.2rem;
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
         }
 
-        .rec-badge {
-          display: inline-block;
-          margin-top: 0.4rem;
-          font-size: 0.67rem;
-          font-weight: 700;
-          letter-spacing: 0.06em;
-          padding: 0.2rem 0.55rem;
-          border-radius: 9999px;
-          text-transform: uppercase;
-        }
-
-        .delete-btn {
-          background: transparent;
-          border: 1px solid transparent;
-          color: var(--text-secondary);
-          padding: 0.25rem;
-          border-radius: 0.4rem;
-          flex-shrink: 0;
-          transition: all 0.2s ease;
-          display: flex;
-          align-items: center; justify-content: center;
-        }
-
-        .delete-btn:hover {
-          color: #f87171;
-          border-color: rgba(248,113,113,0.35);
-          background: rgba(248,113,113,0.08);
-        }
-
-        /* Score circle */
-        .score-circle {
-          width: 60px; height: 60px;
-          border-radius: 50%;
-          background: conic-gradient(var(--sc) var(--progress), rgba(99,102,241,0.08) 0deg);
-          display: flex; align-items: center; justify-content: center;
-          flex-shrink: 0;
-          position: relative;
-        }
-
-        .score-circle::before {
-          content: '';
-          position: absolute;
-          inset: 5px;
-          background: var(--surface-color);
-          border-radius: 50%;
-        }
-
-        .score-inner {
-          position: relative; z-index: 1;
-          text-align: center;
-          line-height: 1;
-        }
-
-        .score-num {
-          display: block;
-          font-size: 1rem;
-          font-weight: 700;
-          color: var(--sc);
-        }
-
-        .score-sub {
-          font-size: 0.5rem;
-          color: var(--text-secondary);
-          font-weight: 500;
-          letter-spacing: 0.03em;
-          text-transform: uppercase;
-        }
-
-        /* Card body */
-        .card-body {
-          padding: 0 1.25rem;
+        .score-container {
           display: flex;
           flex-direction: column;
-          gap: 0.85rem;
+          align-items: center;
+          flex-shrink: 0;
+        }
+
+        .card-body {
+          background: var(--bg-color);
+          border: 1px solid var(--border-color);
+          border-radius: 1rem;
+          padding: 1rem 1.25rem;
+          font-size: 0.875rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+          transition: all 0.3s ease;
+          flex: 1;
+          min-height: 0;
+          overflow: hidden;
+        }
+
+        .dark .card-body {
+          background: rgba(15, 23, 42, 0.4);
+          border-color: rgba(255, 255, 255, 0.05);
         }
 
         .metrics-row {
           display: flex;
-          gap: 0.75rem;
+          justify-content: space-between;
+          border-bottom: 1px solid var(--border-color);
+          padding-bottom: 0.75rem;
+          flex-shrink: 0;
         }
 
-        .metric-chip {
-          flex: 1;
-          background: rgba(99,102,241,0.06);
-          border: 1px solid rgba(99,102,241,0.12);
-          border-radius: 0.65rem;
-          padding: 0.5rem 0.75rem;
-          display: flex;
-          flex-direction: column;
-          gap: 0.1rem;
-        }
-
-        .metric-lbl {
-          font-size: 0.65rem;
-          font-weight: 600;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          color: var(--text-secondary);
-        }
-
-        .metric-val {
-          font-size: 0.88rem;
-          font-weight: 700;
+        .metric {
+          font-weight: bold;
           color: var(--accent-primary);
         }
+        
+        .metric small {
+          color: var(--text-secondary);
+          font-weight: normal;
+          margin-right: 0.25rem;
+        }
 
-        /* Expanded drawer */
-        .expanded-drawer {
+        .bias-indicator {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          color: var(--success-color);
+          font-weight: 500;
+          font-size: 0.75rem;
+          flex-shrink: 0;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+
+        .expanded-details {
           display: flex;
           flex-direction: column;
           gap: 1rem;
-          padding-top: 0.25rem;
-          border-top: 1px solid var(--border-color);
-          padding-top: 0.85rem;
+          border-bottom: 1px solid var(--border-color);
+          padding-bottom: 1rem;
+          overflow-y: auto;
         }
 
-        .section-block { display: flex; flex-direction: column; gap: 0.4rem; }
+        .findings strong {
+          color: var(--text-primary);
+          display: block;
+          margin-bottom: 0.25rem;
+        }
 
-        .section-title {
+        .findings ul {
+          margin: 0;
+          padding-left: 1.2rem;
+          color: var(--text-secondary);
+        }
+        
+        .gap-findings strong {
+          color: #fbbf24;
+        }
+
+        .red-flags-section {
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+        }
+
+        .red-flags-header {
           display: flex;
           align-items: center;
-          gap: 0.4rem;
-          font-size: 0.73rem;
-          font-weight: 700;
-          text-transform: uppercase;
-          letter-spacing: 0.06em;
-          color: var(--text-secondary);
+          gap: 0.5rem;
+          color: #f87171;
+          font-size: 0.75rem;
+          letter-spacing: 0.05em;
         }
 
-        .section-dot {
-          width: 7px; height: 7px;
-          border-radius: 50%;
-          flex-shrink: 0;
-        }
-        .section-dot.success { background: #10b981; box-shadow: 0 0 6px rgba(16,185,129,0.5); }
-        .section-dot.warning { background: #f59e0b; box-shadow: 0 0 6px rgba(245,158,11,0.5); }
-        .section-dot.accent  { background: var(--accent-secondary); box-shadow: 0 0 6px rgba(34,211,238,0.5); }
-
-        .danger-title { color: #f87171; }
-
-        .findings-list {
-          margin: 0;
-          padding-left: 1.1rem;
-          color: var(--text-secondary);
-          font-size: 0.82rem;
-          line-height: 1.55;
-        }
-
-        .warning-list { color: #fbbf24; }
-        .accent-list  { color: var(--accent-secondary); }
-
-        .red-flags-list { display: flex; flex-direction: column; gap: 0.4rem; }
-
-        .red-flag-tag {
-          background: rgba(248,113,113,0.08);
-          border: 1px solid rgba(248,113,113,0.2);
+        .red-flag-pill {
+          background: rgba(248, 113, 113, 0.1);
+          border: 1px solid rgba(248, 113, 113, 0.2);
           color: #fca5a5;
-          padding: 0.45rem 0.8rem;
-          border-radius: 0.6rem;
-          font-size: 0.78rem;
+          padding: 0.6rem 1rem;
+          border-radius: 0.75rem;
+          font-size: 0.8rem;
           line-height: 1.4;
         }
 
-        /* Bias chip */
-        .bias-chip {
-          display: inline-flex;
-          align-items: center;
-          gap: 0.4rem;
-          font-size: 0.7rem;
-          font-weight: 600;
-          color: var(--success-color);
-          background: rgba(16,185,129,0.07);
-          border: 1px solid rgba(16,185,129,0.18);
-          padding: 0.3rem 0.6rem;
-          border-radius: 9999px;
-          width: fit-content;
+        .card-actions {
+          display: flex;
+          gap: 0.75rem;
+          flex-shrink: 0;
+          margin-top: auto;
+          padding-top: 0.5rem;
         }
 
-        /* Actions */
-        .card-actions {
-          padding: 0 1.25rem;
+        .status-dropdown {
+          background: var(--bg-color);
+          color: var(--text-primary);
+          border: 1px solid var(--border-color);
+          border-radius: 0.75rem;
+          padding: 0 1rem;
+          font-size: 0.85rem;
+          font-weight: 600;
+          cursor: pointer;
+          outline: none;
+        }
+        
+        .status-dropdown:focus {
+          border-color: var(--accent-primary);
         }
 
         .view-btn {
-          width: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 0.4rem;
-          padding: 0.65rem;
-          font-size: 0.88rem;
+          flex: 1;
+          padding: 0.75rem;
+          font-size: 0.9rem;
           border-radius: 0.75rem;
-          transition: all 0.25s ease;
+          transition: all 0.3s;
         }
 
-        .view-btn.active-report {
-          background: var(--surface-color);
+        .view-btn.active {
+          background: var(--bg-color);
           border: 1px solid var(--accent-primary);
           color: var(--accent-primary);
-          box-shadow: 0 0 16px rgba(99,102,241,0.12);
         }
       `}</style>
     </div>
@@ -816,3 +524,5 @@ const CandidateList = ({ candidatesData, onClearAll, onDelete, isWorkspaceActive
 };
 
 export default CandidateList;
+;
+
